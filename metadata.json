@@ -1,0 +1,6 @@
+{
+  "name": "Sri Devi Children Hospital",
+  "description": "Trusted pediatric care in Kakinada and Pithapuram with real-time appointment booking, live queue tracking, and reduced hospital waiting times.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
