@@ -252,6 +252,8 @@ export function getInitialSeedData(): DatabaseState {
 
   // Today's date ISO format
   const today = new Date().toISOString().split('T')[0];
+  const [yyyy, mm, dd] = today.split('-');
+  const dateCode = `${mm}${dd}${yyyy.slice(-2)}`;
 
   const config: SystemConfiguration = {
     slotDurationMinutes: 15,
@@ -299,7 +301,7 @@ export function getInitialSeedData(): DatabaseState {
     // Scenario 1: Patient 1 (Aarav, Ravi Kumar) - 10:00 AM. Arrived early (09:45 AM). Completed consultation!
     {
       id: 'apt-1',
-      appointmentNumber: 'SD-KAK-1001',
+      appointmentNumber: `SD-KAK.${dateCode}-001`,
       childId: 'c1-1',
       childName: 'Aarav Kumar',
       parentId: 'p1',
@@ -334,7 +336,7 @@ export function getInitialSeedData(): DatabaseState {
     // Scenario 2: Patient 2 (Vihaan, Suresh Babu) - 10:15 AM. Arrived 10 mins late (10:25), currently WITH DOCTOR!
     {
       id: 'apt-2',
-      appointmentNumber: 'SD-KAK-1002',
+      appointmentNumber: `SD-KAK.${dateCode}-002`,
       childId: 'c2-1',
       childName: 'Vihaan Babu',
       parentId: 'p2',
@@ -366,7 +368,7 @@ export function getInitialSeedData(): DatabaseState {
     // Scenario 3: Patient 3 (Ananya, Lakshmi Devi) - 10:30 AM. Arrived on time, checked in & WAITING! Next patient in line.
     {
       id: 'apt-3',
-      appointmentNumber: 'SD-KAK-1003',
+      appointmentNumber: `SD-KAK.${dateCode}-003`,
       childId: 'c3-1',
       childName: 'Ananya Devi',
       parentId: 'p3',
@@ -398,7 +400,7 @@ export function getInitialSeedData(): DatabaseState {
     // Scenario 4: Patient 4 (Ishaan, Rajesh Kumar) - 10:45 AM. Not checked in yet, approaching slot time.
     {
       id: 'apt-4',
-      appointmentNumber: 'SD-KAK-1004',
+      appointmentNumber: `SD-KAK.${dateCode}-004`,
       childId: 'c4-1',
       childName: 'Ishaan Kumar',
       parentId: 'p4',
@@ -429,7 +431,7 @@ export function getInitialSeedData(): DatabaseState {
     // Scenario 5: Patient 5 (Myra, Priya Rao) - 11:00 AM. Booked, tracking queue from home!
     {
       id: 'apt-5',
-      appointmentNumber: 'SD-KAK-1005',
+      appointmentNumber: `SD-KAK.${dateCode}-005`,
       childId: 'c5-1',
       childName: 'Myra Rao',
       parentId: 'p5',
@@ -460,7 +462,7 @@ export function getInitialSeedData(): DatabaseState {
     // Scenario 6: Patient 6 (Arjun, Mahesh) - 11:15 AM. Booked via Telephone by receptionist.
     {
       id: 'apt-6',
-      appointmentNumber: 'SD-KAK-1006',
+      appointmentNumber: `SD-KAK.${dateCode}-006`,
       childId: 'c6-1',
       childName: 'Arjun',
       parentId: 'p6',
@@ -490,7 +492,7 @@ export function getInitialSeedData(): DatabaseState {
     // Scenario 7: Patient 7 (Kavya, Sravani) - 11:30 AM.
     {
       id: 'apt-7',
-      appointmentNumber: 'SD-KAK-1007',
+      appointmentNumber: `SD-KAK.${dateCode}-007`,
       childId: 'c7-1',
       childName: 'Kavya',
       parentId: 'p7',
@@ -520,7 +522,7 @@ export function getInitialSeedData(): DatabaseState {
     // Scenario 8: Patient 8 (Sai, Venkatesh) - 11:45 AM.
     {
       id: 'apt-8',
-      appointmentNumber: 'SD-KAK-1008',
+      appointmentNumber: `SD-KAK.${dateCode}-008`,
       childId: 'c8-1',
       childName: 'Sai',
       parentId: 'p8',
@@ -550,7 +552,7 @@ export function getInitialSeedData(): DatabaseState {
     // Scenario 9: Patient 9 (Tara, Deepika) - 12:00 PM. Booked, reschedule cutoff >60 mins away!
     {
       id: 'apt-9',
-      appointmentNumber: 'SD-KAK-1009',
+      appointmentNumber: `SD-KAK.${dateCode}-009`,
       childId: 'c9-1',
       childName: 'Tara',
       parentId: 'p9',
@@ -580,7 +582,7 @@ export function getInitialSeedData(): DatabaseState {
     // Scenario 10: Patient 10 (Akhil, Praveen) - 12:15 PM.
     {
       id: 'apt-10',
-      appointmentNumber: 'SD-KAK-1010',
+      appointmentNumber: `SD-KAK.${dateCode}-010`,
       childId: 'c10-1',
       childName: 'Akhil',
       parentId: 'p10',

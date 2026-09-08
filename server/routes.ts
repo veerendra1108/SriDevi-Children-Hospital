@@ -170,13 +170,94 @@ apiRouter.get('/appointments/:id', (req, res) => {
   res.json(appt);
 });
 
-// Book appointment
+// Book appointment (Supports both registered parentId/childId OR direct quick booking with parentMobile & childName)
 apiRouter.post('/appointments', (req, res) => {
-  const result = schedulingService.bookAppointment(req.body);
+  const {
+    parentId,
+    childId,
+    parentName,
+    parentMobile,
+    childName,
+    doctorId,
+    branchId,
+    date,
+    bookedTime,
+    bookingSource,
+    advanceNoticePreferenceMinutes,
+  } = req.body;
+
+  const state = db.getState();
+  let effectiveParentId = parentId;
+  let effectiveChildId = childId;
+
+  // If parentId is not provided, auto-create or find by mobile
+  if (!effectiveParentId && parentMobile) {
+    const trimmedMobile = String(parentMobile).trim();
+    let parent = state.parents.find((p) => p.mobile === trimmedMobile);
+    if (!parent) {
+      parent = {
+        id: `p-${Date.now()}`,
+        name: (parentName || 'Parent / Guardian').trim(),
+        mobile: trimmedMobile,
+        children: [],
+      };
+      state.parents.push(parent);
+      state.parentPasswords[trimmedMobile] = 'Test@123';
+    } else if (parentName && parentName.trim()) {
+      parent.name = parentName.trim();
+    }
+
+    effectiveParentId = parent.id;
+
+    // Find or add child
+    const trimmedChild = (childName || 'Child').trim();
+    let child = parent.children.find((c) => c.name.toLowerCase() === trimmedChild.toLowerCase());
+    if (!child) {
+      child = {
+        id: `c-${Date.now()}-${Math.random().toString(36).substr(2, 4)}`,
+        parentId: parent.id,
+        name: trimmedChild,
+        gender: 'Boy',
+      };
+      parent.children.push(child);
+    }
+    effectiveChildId = child.id;
+  } else if (effectiveParentId && !effectiveChildId && childName) {
+    const parent = state.parents.find((p) => p.id === effectiveParentId);
+    if (parent) {
+      const trimmedChild = childName.trim();
+      let child = parent.children.find((c) => c.name.toLowerCase() === trimmedChild.toLowerCase());
+      if (!child) {
+        child = {
+          id: `c-${Date.now()}-${Math.random().toString(36).substr(2, 4)}`,
+          parentId: parent.id,
+          name: trimmedChild,
+          gender: 'Boy',
+        };
+        parent.children.push(child);
+      }
+      effectiveChildId = child.id;
+    }
+  }
+
+  const result = schedulingService.bookAppointment({
+    parentId: effectiveParentId,
+    childId: effectiveChildId,
+    doctorId,
+    branchId,
+    date,
+    bookedTime,
+    bookingSource: bookingSource || 'ONLINE',
+    advanceNoticePreferenceMinutes: advanceNoticePreferenceMinutes || 30,
+  });
+
   if (!result.success) {
     return res.status(400).json(result);
   }
-  res.status(201).json(result);
+
+  const parent = state.parents.find((p) => p.id === effectiveParentId);
+  db.persistState();
+  res.status(201).json({ ...result, parent });
 });
 
 // Reschedule appointment
@@ -327,25 +408,33 @@ apiRouter.post('/reception/cancel-session', (req, res) => {
 apiRouter.get('/queue/live', (req, res) => {
   const { doctorId, branchId, date } = req.query;
   const state = db.getState();
-  const targetDate = String(date || state.config.simulatedDate);
+  const isAllDates = date === 'all';
+  const targetDate = isAllDates ? '' : String(date || state.config.simulatedDate);
+  const isAllDoctors = !doctorId || doctorId === 'all';
 
-  if (doctorId && branchId) {
+  if (!isAllDoctors && branchId && targetDate) {
     schedulingService.recalculateSessionQueue(String(doctorId), String(branchId) as BranchId, targetDate);
+  } else if (isAllDoctors && branchId && targetDate) {
+    state.doctors.forEach((d) => {
+      schedulingService.recalculateSessionQueue(d.id, String(branchId) as BranchId, targetDate);
+    });
   }
 
-  const session = state.sessions.find(
-    (s) => s.doctorId === doctorId && s.branchId === branchId && s.date === targetDate
-  );
+  const session = isAllDoctors
+    ? state.sessions.find((s) => s.branchId === branchId && s.date === (targetDate || state.config.simulatedDate))
+    : state.sessions.find(
+        (s) => s.doctorId === doctorId && s.branchId === branchId && s.date === (targetDate || state.config.simulatedDate)
+      );
 
   const appointments = state.appointments
     .filter(
       (a) =>
-        (!doctorId || a.doctorId === doctorId) &&
+        (isAllDoctors || a.doctorId === doctorId) &&
         (!branchId || a.branchId === branchId) &&
-        a.date === targetDate &&
+        (isAllDates || a.date === targetDate) &&
         a.status !== 'RESCHEDULED'
     )
-    .sort((a, b) => timeToMinutes(a.bookedTime) - timeToMinutes(b.bookedTime));
+    .sort((a, b) => a.date.localeCompare(b.date) || timeToMinutes(a.bookedTime) - timeToMinutes(b.bookedTime));
 
   const currentPatient = appointments.find((a) => a.status === 'WITH_DOCTOR');
   const waitingPatients = appointments.filter((a) => a.status === 'WAITING' || a.status === 'ARRIVED');

@@ -281,7 +281,18 @@ export class SchedulingService {
     const branch = state.branches.find((b) => b.id === params.branchId);
     if (!branch) return { success: false, message: 'Branch not found.' };
 
-    const appointmentNumber = `SD-${params.branchId === 'kakinada' ? 'KAK' : 'PIT'}-${1000 + state.appointments.length + 1}`;
+    const branchCode = params.branchId === 'kakinada' ? 'KAK' : 'PIT';
+    const dateParts = params.date.split('-');
+    const mm = dateParts[1] || '01';
+    const dd = dateParts[2] || '01';
+    const yy = (dateParts[0] || '2026').slice(-2);
+    const dateCode = `${mm}${dd}${yy}`;
+    const daySequence = state.appointments.filter(
+      (a) => a.branchId === params.branchId && a.date === params.date
+    ).length + 1;
+    const seqStr = String(daySequence).padStart(3, '0');
+    const appointmentNumber = `SD-${branchCode}.${dateCode}-${seqStr}`;
+
     const bookedMin = timeToMinutes(params.bookedTime);
     const recommendedArrival = minutesToTime(Math.max(0, bookedMin - state.config.arrivalBeforeAppointmentMinutes));
 
@@ -320,6 +331,9 @@ export class SchedulingService {
 
     // Recalculate queue ETAs
     this.recalculateSessionQueue(params.doctorId, params.branchId, params.date);
+
+    // Persist to SQLite
+    db.persistState();
 
     return { success: true, appointment: newAppointment };
   }
@@ -386,6 +400,7 @@ export class SchedulingService {
 
     // Recalculate
     this.recalculateSessionQueue(appt.doctorId, appt.branchId, appt.date);
+    db.persistState();
 
     return { success: true, appointment: appt };
   }
@@ -409,6 +424,7 @@ export class SchedulingService {
     appt.updatedAt = new Date().toISOString();
 
     this.recalculateSessionQueue(appt.doctorId, appt.branchId, appt.date);
+    db.persistState();
     return { success: true };
   }
 
@@ -441,6 +457,7 @@ export class SchedulingService {
     appt.updatedAt = new Date().toISOString();
 
     this.recalculateSessionQueue(appt.doctorId, appt.branchId, appt.date);
+    db.persistState();
     return { success: true };
   }
 
@@ -478,6 +495,7 @@ export class SchedulingService {
     }
 
     this.recalculateSessionQueue(appt.doctorId, appt.branchId, appt.date);
+    db.persistState();
     return { success: true };
   }
 
@@ -498,6 +516,7 @@ export class SchedulingService {
     appt.updatedAt = new Date().toISOString();
 
     this.recalculateSessionQueue(appt.doctorId, appt.branchId, appt.date);
+    db.persistState();
     return { success: true };
   }
 
@@ -522,6 +541,7 @@ export class SchedulingService {
     appt.updatedAt = new Date().toISOString();
 
     this.recalculateSessionQueue(appt.doctorId, appt.branchId, appt.date);
+    db.persistState();
     return { success: true };
   }
 
@@ -548,6 +568,7 @@ export class SchedulingService {
     );
 
     this.recalculateSessionQueue(appt.doctorId, appt.branchId, appt.date);
+    db.persistState();
     return { success: true };
   }
 
@@ -577,9 +598,14 @@ export class SchedulingService {
     const doctor = state.doctors.find((d) => d.id === params.doctorId);
     const branch = state.branches.find((b) => b.id === params.branchId);
 
+    const emgBranchCode = params.branchId === 'kakinada' ? 'KAK' : 'PIT';
+    const emgDateParts = state.config.simulatedDate.split('-');
+    const emgDateCode = `${emgDateParts[1] || '01'}${emgDateParts[2] || '01'}${(emgDateParts[0] || '2026').slice(-2)}`;
+    const emgSeq = String(state.appointments.filter((a) => a.date === state.config.simulatedDate && a.isEmergency).length + 1).padStart(3, '0');
+
     const emergencyAppt: Appointment = {
       id: `apt-emg-${Date.now()}`,
-      appointmentNumber: `SD-EMG-${Math.floor(100 + Math.random() * 900)}`,
+      appointmentNumber: `SD-${emgBranchCode}.EMG.${emgDateCode}-${emgSeq}`,
       childId: `c-emg-${Date.now()}`,
       childName: params.childName || 'Emergency Pediatric Patient',
       parentId: 'p-emg',
@@ -613,6 +639,7 @@ export class SchedulingService {
 
     state.appointments.push(emergencyAppt);
     this.recalculateSessionQueue(params.doctorId, params.branchId, state.config.simulatedDate);
+    db.persistState();
 
     return { success: true, appointment: emergencyAppt };
   }
@@ -656,6 +683,7 @@ export class SchedulingService {
       );
     });
 
+    db.persistState();
     return { success: true, affectedCount: affectedAppointments.length };
   }
 

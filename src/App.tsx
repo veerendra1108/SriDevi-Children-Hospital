@@ -300,12 +300,28 @@ export default function App() {
         )}
       </main>
 
-      {/* Global Footer */}
-      <Footer
-        onNavigate={handleNavigate}
-        onOpenParentLogin={() => setIsParentLoginOpen(true)}
-        onOpenReceptionLogin={() => setIsReceptionLoginOpen(true)}
-      />
+      {/* Footer: Dedicated clean footer for portals; full marketing footer for public website */}
+      {activeTab === 'parent-portal' ? (
+        <footer className="bg-white border-t border-slate-200 py-6 text-center text-xs text-slate-500">
+          <div className="max-w-7xl mx-auto px-4 flex flex-col sm:flex-row justify-between items-center gap-2">
+            <span>Sri Devi Children Hospital • Confidential Patient Portal</span>
+            <span>Emergency Helpdesk: <strong className="text-slate-700">+91 944 011 2233</strong></span>
+          </div>
+        </footer>
+      ) : activeTab === 'reception-desk' ? (
+        <footer className="bg-slate-900 border-t border-slate-800 py-4 text-center text-xs text-slate-400">
+          <div className="max-w-7xl mx-auto px-4 flex flex-col sm:flex-row justify-between items-center gap-2">
+            <span>Hospital Operations Console • Reception Desk</span>
+            <span>Kakinada &amp; Pithapuram Branches</span>
+          </div>
+        </footer>
+      ) : (
+        <Footer
+          onNavigate={handleNavigate}
+          onOpenParentLogin={() => setIsParentLoginOpen(true)}
+          onOpenReceptionLogin={() => setIsReceptionLoginOpen(true)}
+        />
+      )}
 
       {/* Modals */}
       <ParentLoginModal
@@ -329,10 +345,15 @@ export default function App() {
         branches={branches}
         initialDoctorId={bookingDoctorId}
         initialBranchId={bookingBranchId}
-        onBookingSuccess={() => {
-          if (parentUser) {
+        onBookingSuccess={(appointment, parent) => {
+          if (parent) {
+            setParentUser(parent);
+          } else if (parentUser) {
             handleRefreshParent();
           }
+        }}
+        onViewDashboard={() => {
+          setActiveTab('parent-portal');
         }}
       />
 

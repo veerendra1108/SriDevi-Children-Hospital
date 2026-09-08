@@ -55,20 +55,20 @@ export const LiveQueueCard: React.FC<LiveQueueCardProps> = ({
       : true;
 
   // Status badge indicator color
-  let statusBadgeColor = 'bg-emerald-50 text-emerald-800 border-emerald-200';
+  let statusBadgeColor = 'bg-emerald-50 text-emerald-800 border-emerald-300 shadow-xs';
   let statusDotColor = 'bg-emerald-500';
   let delayText = 'Doctor running approximately on schedule';
 
   if (delayDifference > 20) {
-    statusBadgeColor = 'bg-rose-50 text-rose-900 border-rose-200';
-    statusDotColor = 'bg-rose-500 animate-pulse';
+    statusBadgeColor = 'bg-rose-50 text-rose-900 border-rose-300 shadow-xs';
+    statusDotColor = 'bg-rose-500';
     delayText = `Doctor running approximately ${delayDifference} minutes late`;
   } else if (delayDifference > 5) {
-    statusBadgeColor = 'bg-amber-50 text-amber-900 border-amber-200';
+    statusBadgeColor = 'bg-amber-50 text-amber-900 border-amber-300 shadow-xs';
     statusDotColor = 'bg-amber-500';
     delayText = `Doctor running approximately ${delayDifference} minutes late`;
   } else if (delayDifference < -5) {
-    statusBadgeColor = 'bg-teal-50 text-teal-900 border-teal-200';
+    statusBadgeColor = 'bg-teal-50 text-teal-900 border-teal-300 shadow-xs';
     statusDotColor = 'bg-teal-500';
     delayText = `Doctor is running slightly ahead of schedule`;
   }
@@ -107,17 +107,24 @@ export const LiveQueueCard: React.FC<LiveQueueCardProps> = ({
         </div>
 
         <div className="flex items-center gap-2">
-          {/* Status Badge */}
+          {/* Live Blinking Radar Status Badge */}
           <span
-            className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-semibold border ${statusBadgeColor}`}
+            className={`inline-flex items-center gap-2 px-3 py-1.5 rounded-full text-xs font-semibold border transition-all ${statusBadgeColor}`}
           >
-            <span className={`w-2 h-2 rounded-full ${statusDotColor}`} />
+            <span className="relative flex h-2.5 w-2.5 shrink-0">
+              <span
+                className={`animate-ping absolute inline-flex h-full w-full rounded-full opacity-75 ${statusDotColor}`}
+              />
+              <span
+                className={`relative inline-flex rounded-full h-2.5 w-2.5 ${statusDotColor} animate-pulse`}
+              />
+            </span>
             <span>{delayText}</span>
           </span>
 
           <button
             onClick={onRefresh}
-            className="p-1.5 rounded-lg text-slate-400 hover:text-slate-600 hover:bg-slate-100 transition"
+            className="p-1.5 rounded-lg text-slate-400 hover:text-slate-600 hover:bg-slate-100 transition active:rotate-180 duration-300"
             title="Refresh Live Queue Status"
           >
             <RefreshCw className="w-4 h-4" />

@@ -194,6 +194,52 @@ export const ParentDashboard: React.FC<ParentDashboardProps> = ({
               onRefresh={fetchParentAppointments}
             />
           </div>
+        ) : otherUpcomingAppointments.length > 0 ? (
+          <div className="p-6 sm:p-7 rounded-3xl bg-gradient-to-r from-teal-50 to-sky-50 border border-teal-200/80 shadow-xs space-y-4">
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <div className="flex items-center gap-3">
+                <div className="w-12 h-12 rounded-2xl bg-teal-600 text-white flex items-center justify-center font-bold shadow-md shadow-teal-600/20">
+                  <Calendar className="w-6 h-6" />
+                </div>
+                <div>
+                  <div className="text-[11px] font-bold text-teal-700 uppercase tracking-wider">
+                    Upcoming Appointment Confirmed
+                  </div>
+                  <h3 className="text-lg sm:text-xl font-bold text-slate-900">
+                    {otherUpcomingAppointments[0].childName} • Token #{otherUpcomingAppointments[0].appointmentNumber}
+                  </h3>
+                </div>
+              </div>
+
+              <span className="px-3 py-1 rounded-xl bg-teal-100 text-teal-800 text-xs font-bold border border-teal-200">
+                Scheduled for {otherUpcomingAppointments[0].date}
+              </span>
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 text-xs bg-white p-4 rounded-2xl border border-teal-100">
+              <div>
+                <span className="text-slate-400 block text-[11px]">Doctor &amp; Branch:</span>
+                <strong className="text-slate-800">{otherUpcomingAppointments[0].doctorName}</strong>
+                <div className="text-slate-500 text-[11px]">{otherUpcomingAppointments[0].branchName}</div>
+              </div>
+              <div>
+                <span className="text-slate-400 block text-[11px]">Consultation Date &amp; Time:</span>
+                <strong className="text-teal-900 text-sm">{otherUpcomingAppointments[0].date} at {otherUpcomingAppointments[0].bookedTime}</strong>
+                <div className="text-slate-500 text-[11px]">Arrive by {otherUpcomingAppointments[0].recommendedArrivalTime}</div>
+              </div>
+              <div className="flex items-center sm:justify-end gap-2 pt-2 sm:pt-0">
+                <button
+                  onClick={() => onRescheduleAppointment(otherUpcomingAppointments[0])}
+                  className="px-4 py-2 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 font-semibold text-xs transition cursor-pointer"
+                >
+                  Reschedule
+                </button>
+              </div>
+            </div>
+            <p className="text-[11px] text-teal-800 font-medium">
+              💡 Tip: On the appointment day, this tracker will automatically turn into your real-time Live Queue Card with live token calling and train-ETA delays!
+            </p>
+          </div>
         ) : (
           <div className="p-6 sm:p-8 rounded-3xl bg-white border border-slate-200/80 shadow-xs flex flex-col sm:flex-row items-center justify-between gap-6">
             <div className="flex items-center gap-4 text-center sm:text-left">
@@ -201,7 +247,7 @@ export const ParentDashboard: React.FC<ParentDashboardProps> = ({
                 <Calendar className="w-6 h-6" />
               </div>
               <div>
-                <h3 className="font-bold text-slate-900 text-base">No active appointments today</h3>
+                <h3 className="font-bold text-slate-900 text-base">No active appointments</h3>
                 <p className="text-xs text-slate-500 mt-0.5">
                   Book an exact consultation slot with Dr. Subba Rao Vadarevu or Dr. Prashant.
                 </p>
@@ -210,7 +256,7 @@ export const ParentDashboard: React.FC<ParentDashboardProps> = ({
 
             <button
               onClick={onOpenBookAppointment}
-              className="px-6 py-3 rounded-xl bg-teal-600 hover:bg-teal-700 text-white font-semibold text-xs transition"
+              className="px-6 py-3 rounded-xl bg-teal-600 hover:bg-teal-700 text-white font-semibold text-xs transition cursor-pointer"
             >
               Book New Appointment
             </button>

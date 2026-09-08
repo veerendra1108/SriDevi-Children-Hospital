@@ -11,6 +11,7 @@ import {
   ShieldCheck,
   Building,
   User,
+  Users,
   Clock,
   Activity,
   CheckCircle,
@@ -49,7 +50,10 @@ export const ReceptionDashboard: React.FC<ReceptionDashboardProps> = ({
   onOpenAnalytics,
 }) => {
   const [selectedBranchId, setSelectedBranchId] = useState<BranchId>(receptionUser.branchId);
-  const [selectedDoctorId, setSelectedDoctorId] = useState<string>('dr-subba-rao');
+  const [selectedDoctorId, setSelectedDoctorId] = useState<string>('all');
+  const [selectedDateFilter, setSelectedDateFilter] = useState<string>(config.simulatedDate);
+  const [isAllDates, setIsAllDates] = useState<boolean>(false);
+  const [searchQuery, setSearchQuery] = useState<string>('');
   const [queueData, setQueueData] = useState<any>(null);
   const [loading, setLoading] = useState(true);
 
@@ -87,12 +91,13 @@ export const ReceptionDashboard: React.FC<ReceptionDashboardProps> = ({
     fetchLiveQueue();
     const interval = setInterval(fetchLiveQueue, 10000);
     return () => clearInterval(interval);
-  }, [selectedBranchId, selectedDoctorId, config.simulatedTime]);
+  }, [selectedBranchId, selectedDoctorId, selectedDateFilter, isAllDates, config.simulatedTime]);
 
   const fetchLiveQueue = async () => {
     try {
+      const dateParam = isAllDates ? 'all' : selectedDateFilter;
       const res = await fetch(
-        `/api/queue/live?doctorId=${selectedDoctorId}&branchId=${selectedBranchId}&date=${config.simulatedDate}`
+        `/api/queue/live?doctorId=${selectedDoctorId}&branchId=${selectedBranchId}&date=${dateParam}`
       );
       const data = await res.json();
       setQueueData(data);
@@ -358,6 +363,24 @@ export const ReceptionDashboard: React.FC<ReceptionDashboardProps> = ({
   const nextPatient = queueData?.nextPatient as Appointment | undefined;
   const appointments = (queueData?.appointments as Appointment[]) || [];
 
+  const todayDateStr = config.simulatedDate;
+  const tomorrowDate = new Date(config.simulatedDate);
+  tomorrowDate.setDate(tomorrowDate.getDate() + 1);
+  const tomorrowDateStr = tomorrowDate.toISOString().split('T')[0];
+
+  const filteredAppointments = appointments.filter((appt) => {
+    if (!searchQuery.trim()) return true;
+    const q = searchQuery.toLowerCase().trim();
+    return (
+      appt.childName.toLowerCase().includes(q) ||
+      appt.parentName.toLowerCase().includes(q) ||
+      appt.parentMobile.toLowerCase().includes(q) ||
+      appt.appointmentNumber.toLowerCase().includes(q) ||
+      appt.bookedTime.toLowerCase().includes(q) ||
+      (appt.doctorName && appt.doctorName.toLowerCase().includes(q))
+    );
+  });
+
   return (
     <div className="min-h-screen bg-slate-100/70 pb-20 pt-6">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 space-y-6">
@@ -463,6 +486,19 @@ export const ReceptionDashboard: React.FC<ReceptionDashboardProps> = ({
 
         {/* Doctor Switcher Pills */}
         <div className="flex items-center gap-3 overflow-x-auto pb-1">
+          <button
+            id="rec-doc-pill-all"
+            onClick={() => setSelectedDoctorId('all')}
+            className={`px-4 py-2 rounded-2xl text-xs font-bold transition flex items-center gap-2 whitespace-nowrap cursor-pointer ${
+              selectedDoctorId === 'all'
+                ? 'bg-teal-700 text-white shadow-sm'
+                : 'bg-white text-slate-700 hover:bg-slate-50 border border-slate-200'
+            }`}
+          >
+            <Users className="w-4 h-4" />
+            <span>All Doctors ({doctors.length})</span>
+          </button>
+
           {doctors.map((doc) => (
             <button
               key={doc.id}
@@ -493,10 +529,12 @@ export const ReceptionDashboard: React.FC<ReceptionDashboardProps> = ({
           <div className="flex flex-wrap items-center justify-between gap-3 pb-3 border-b border-slate-100">
             <div>
               <span className="text-xs font-bold uppercase tracking-wider text-teal-700">
-                Doctor Live Operational Card
+                {selectedDoctorId === 'all' ? 'Hospital Branch Live Queue Overview' : 'Doctor Live Operational Card'}
               </span>
               <h3 className="text-xl font-bold text-slate-900">
-                {doctors.find((d) => d.id === selectedDoctorId)?.name}
+                {selectedDoctorId === 'all'
+                  ? `All Doctors • ${branches.find((b) => b.id === selectedBranchId)?.name || 'Main Hospital'}`
+                  : doctors.find((d) => d.id === selectedDoctorId)?.name}
               </h3>
             </div>
 
@@ -616,12 +654,118 @@ export const ReceptionDashboard: React.FC<ReceptionDashboardProps> = ({
           </div>
         </div>
 
+        {/* Date Selector & Search Filters */}
+        <div className="bg-white rounded-3xl p-5 border border-slate-200/80 shadow-xs space-y-4">
+          <div className="flex flex-col md:flex-row md:items-center justify-between gap-3">
+            {/* Date Tabs */}
+            <div className="flex flex-wrap items-center gap-2">
+              <span className="text-xs font-bold text-slate-700 uppercase tracking-wider mr-1">
+                Queue Date:
+              </span>
+              <button
+                type="button"
+                id="rec-date-btn-today"
+                onClick={() => {
+                  setSelectedDateFilter(todayDateStr);
+                  setIsAllDates(false);
+                }}
+                className={`px-3.5 py-1.5 rounded-xl text-xs font-semibold transition cursor-pointer border ${
+                  !isAllDates && selectedDateFilter === todayDateStr
+                    ? 'bg-teal-700 text-white border-teal-700 shadow-xs'
+                    : 'bg-slate-50 text-slate-700 border-slate-200 hover:bg-slate-100'
+                }`}
+              >
+                Today ({todayDateStr})
+              </button>
+
+              <button
+                type="button"
+                id="rec-date-btn-tomorrow"
+                onClick={() => {
+                  setSelectedDateFilter(tomorrowDateStr);
+                  setIsAllDates(false);
+                }}
+                className={`px-3.5 py-1.5 rounded-xl text-xs font-semibold transition cursor-pointer border ${
+                  !isAllDates && selectedDateFilter === tomorrowDateStr
+                    ? 'bg-teal-700 text-white border-teal-700 shadow-xs'
+                    : 'bg-slate-50 text-slate-700 border-slate-200 hover:bg-slate-100'
+                }`}
+              >
+                Tomorrow ({tomorrowDateStr})
+              </button>
+
+              <button
+                type="button"
+                id="rec-date-btn-all"
+                onClick={() => {
+                  setIsAllDates(true);
+                }}
+                className={`px-3.5 py-1.5 rounded-xl text-xs font-semibold transition cursor-pointer border ${
+                  isAllDates
+                    ? 'bg-teal-700 text-white border-teal-700 shadow-xs'
+                    : 'bg-slate-50 text-slate-700 border-slate-200 hover:bg-slate-100'
+                }`}
+              >
+                All Upcoming Dates
+              </button>
+
+              {/* Custom Date Input */}
+              <div className="flex items-center gap-1.5 text-xs">
+                <span className="text-slate-400">or Pick Date:</span>
+                <input
+                  id="rec-custom-date-input"
+                  type="date"
+                  value={selectedDateFilter}
+                  onChange={(e) => {
+                    if (e.target.value) {
+                      setSelectedDateFilter(e.target.value);
+                      setIsAllDates(false);
+                    }
+                  }}
+                  className="px-2.5 py-1 rounded-xl bg-slate-50 border border-slate-300 text-xs font-semibold text-slate-800 focus:outline-none focus:border-teal-500"
+                />
+              </div>
+            </div>
+
+            {/* Quick Status Tag */}
+            <div className="text-xs text-slate-500 font-medium">
+              Active View: <strong className="text-teal-900 font-semibold">{isAllDates ? 'All Upcoming Bookings' : selectedDateFilter}</strong>
+            </div>
+          </div>
+
+          {/* Search Bar */}
+          <div className="relative">
+            <Search className="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
+            <input
+              id="rec-search-input"
+              type="text"
+              placeholder="Search by Patient Name, Parent Name, Mobile (e.g. 949237...), or Token # (e.g. 1011)..."
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              className="w-full pl-10 pr-10 py-2.5 rounded-2xl bg-slate-50 border border-slate-200 text-xs text-slate-900 placeholder:text-slate-400 focus:bg-white focus:outline-none focus:border-teal-500 transition"
+            />
+            {searchQuery && (
+              <button
+                type="button"
+                onClick={() => setSearchQuery('')}
+                className="p-1 rounded-full text-slate-400 hover:text-slate-600 absolute right-3 top-1/2 -translate-y-1/2"
+              >
+                <X className="w-3.5 h-3.5" />
+              </button>
+            )}
+          </div>
+        </div>
+
         {/* Live Queue Table / Cards (Mobile-first responsive) */}
         <div className="bg-white rounded-3xl p-6 border border-slate-200/80 shadow-xs space-y-4">
-          <div className="flex items-center justify-between">
+          <div className="flex flex-wrap items-center justify-between gap-2">
             <h3 className="font-bold text-slate-900 text-base flex items-center gap-2">
               <Activity className="w-4 h-4 text-teal-600" />
-              <span>Today’s Patient Queue ({appointments.length} Consultations)</span>
+              <span>
+                Patient Consultations ({filteredAppointments.length}
+                {filteredAppointments.length !== appointments.length && ` of ${appointments.length}`}
+                {isAllDates ? ' Total Future' : ` on ${selectedDateFilter}`})
+              </span>
             </h3>
             <span className="text-xs text-slate-500">
               Reserved Priority = Walk-in &gt; Emergency priority
@@ -629,57 +773,93 @@ export const ReceptionDashboard: React.FC<ReceptionDashboardProps> = ({
           </div>
 
           <div className="space-y-3">
-            {appointments.map((appt) => {
-              const isWithDoctor = appt.status === 'WITH_DOCTOR';
-              const isWaiting = appt.status === 'WAITING';
-              const isBooked = appt.status === 'BOOKED' || appt.status === 'APPROACHING';
-              const isCompleted = appt.status === 'COMPLETED';
-              const isLate = appt.status === 'LATE';
-              const isNoShow = appt.status === 'NO_SHOW';
+            {filteredAppointments.length === 0 ? (
+              <div className="py-12 text-center space-y-2 bg-slate-50 rounded-2xl border border-dashed border-slate-200">
+                <UserX className="w-8 h-8 text-slate-400 mx-auto" />
+                <div className="font-bold text-slate-700 text-sm">No patient appointments found</div>
+                <p className="text-xs text-slate-500 max-w-sm mx-auto">
+                  {searchQuery
+                    ? `No matching patients for search query "${searchQuery}".`
+                    : `No appointments found for ${isAllDates ? 'upcoming dates' : selectedDateFilter} in this branch.`}
+                </p>
+                {searchQuery && (
+                  <button
+                    onClick={() => setSearchQuery('')}
+                    className="text-xs text-teal-700 font-semibold underline cursor-pointer"
+                  >
+                    Clear Search Filter
+                  </button>
+                )}
+              </div>
+            ) : (
+              filteredAppointments.map((appt) => {
+                const isWithDoctor = appt.status === 'WITH_DOCTOR';
+                const isWaiting = appt.status === 'WAITING';
+                const isBooked = appt.status === 'BOOKED' || appt.status === 'APPROACHING';
+                const isCompleted = appt.status === 'COMPLETED';
+                const isLate = appt.status === 'LATE';
+                const isNoShow = appt.status === 'NO_SHOW';
 
-              return (
-                <div
-                  key={appt.id}
-                  id={`queue-row-${appt.id}`}
-                  className={`p-4 sm:p-5 rounded-2xl border transition-all flex flex-col lg:flex-row lg:items-center justify-between gap-4 ${
-                    isWithDoctor
-                      ? 'bg-teal-50/70 border-teal-400 ring-2 ring-teal-400/30'
-                      : isWaiting
-                      ? 'bg-sky-50/60 border-sky-300'
-                      : isCompleted
-                      ? 'bg-slate-50/60 border-slate-200 opacity-70'
-                      : isLate
-                      ? 'bg-amber-50/60 border-amber-300'
-                      : isNoShow
-                      ? 'bg-rose-50/60 border-rose-200 opacity-60'
-                      : 'bg-white border-slate-200 hover:border-slate-300'
-                  }`}
-                >
-                  {/* Patient Info */}
-                  <div className="space-y-1 sm:max-w-md">
-                    <div className="flex flex-wrap items-center gap-2">
-                      <span className="font-bold text-slate-900 text-sm sm:text-base">
-                        {appt.childName}
-                      </span>
-                      <span className="text-[10px] font-mono px-2 py-0.5 rounded-md bg-white border border-slate-200 text-slate-600">
-                        #{appt.appointmentNumber}
-                      </span>
-                      {appt.isEmergency && (
-                        <span className="text-[10px] px-2 py-0.5 rounded-md bg-rose-600 text-white font-bold">
-                          EMERGENCY
+                return (
+                  <div
+                    key={appt.id}
+                    id={`queue-row-${appt.id}`}
+                    className={`p-4 sm:p-5 rounded-2xl border transition-all flex flex-col lg:flex-row lg:items-center justify-between gap-4 ${
+                      isWithDoctor
+                        ? 'bg-teal-50/70 border-teal-400 ring-2 ring-teal-400/30'
+                        : isWaiting
+                        ? 'bg-sky-50/60 border-sky-300'
+                        : isCompleted
+                        ? 'bg-slate-50/60 border-slate-200 opacity-70'
+                        : isLate
+                        ? 'bg-amber-50/60 border-amber-300'
+                        : isNoShow
+                        ? 'bg-rose-50/60 border-rose-200 opacity-60'
+                        : 'bg-white border-slate-200 hover:border-slate-300'
+                    }`}
+                  >
+                    {/* Patient Info */}
+                    <div className="space-y-1.5 sm:max-w-md">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <span className="font-bold text-slate-900 text-sm sm:text-base">
+                          {appt.childName}
                         </span>
-                      )}
-                      {appt.bookingSource === 'RECEPTION_PHONE' && (
-                        <span className="text-[10px] px-2 py-0.5 rounded-md bg-indigo-100 text-indigo-800 font-semibold">
-                          Phone Booking
+                        <span className="text-[10px] font-mono px-2 py-0.5 rounded-md bg-white border border-slate-200 text-slate-700 font-semibold">
+                          #{appt.appointmentNumber}
                         </span>
-                      )}
-                    </div>
+                        <span
+                          className={`text-[10px] font-bold px-2 py-0.5 rounded-md ${
+                            appt.date === todayDateStr
+                              ? 'bg-teal-100 text-teal-800'
+                              : appt.date === tomorrowDateStr
+                              ? 'bg-blue-100 text-blue-800'
+                              : 'bg-amber-100 text-amber-900'
+                          }`}
+                        >
+                          📅 {appt.date === todayDateStr ? 'Today' : appt.date === tomorrowDateStr ? 'Tomorrow' : appt.date}
+                        </span>
+                        {selectedDoctorId === 'all' && (
+                          <span className="text-[10px] px-2 py-0.5 rounded-md bg-slate-100 text-slate-700 font-medium">
+                            {appt.doctorName}
+                          </span>
+                        )}
+                        {appt.isEmergency && (
+                          <span className="text-[10px] px-2 py-0.5 rounded-md bg-rose-600 text-white font-bold">
+                            EMERGENCY
+                          </span>
+                        )}
+                        {appt.bookingSource === 'RECEPTION_PHONE' && (
+                          <span className="text-[10px] px-2 py-0.5 rounded-md bg-indigo-100 text-indigo-800 font-semibold">
+                            Phone Booking
+                          </span>
+                        )}
+                      </div>
 
-                    <div className="text-xs text-slate-500">
-                      Parent: <strong className="text-slate-700">{appt.parentName}</strong> ({appt.parentMobile})
+                      <div className="text-xs text-slate-500">
+                        Parent: <strong className="text-slate-800 font-semibold">{appt.parentName}</strong>{' '}
+                        <span className="font-mono text-slate-600">({appt.parentMobile})</span>
+                      </div>
                     </div>
-                  </div>
 
                   {/* Times Breakdown (Booked vs Expected vs Status) */}
                   <div className="flex flex-wrap items-center gap-4 text-xs">
@@ -789,7 +969,7 @@ export const ReceptionDashboard: React.FC<ReceptionDashboardProps> = ({
                   </div>
                 </div>
               );
-            })}
+            }))}
           </div>
         </div>
 
