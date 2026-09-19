@@ -79,11 +79,9 @@ export const DoctorsSection: React.FC<DoctorsSectionProps> = ({
                         <span className="px-2.5 py-0.5 rounded-full bg-teal-50 text-teal-800 text-xs font-semibold border border-teal-200">
                           Primary Pediatrician
                         </span>
-                        {doctor.id === 'dr-subba-rao' && (
-                          <span className="px-2.5 py-0.5 rounded-full bg-amber-50 text-amber-800 text-[11px] font-semibold border border-amber-200">
-                            Selected Configured Days
-                          </span>
-                        )}
+                        <span className="px-2.5 py-0.5 rounded-full bg-emerald-50 text-emerald-800 text-[11px] font-semibold border border-emerald-200">
+                          Daily: 10:00 AM – 07:00 PM
+                        </span>
                       </div>
 
                       <h3 className="text-xl sm:text-2xl font-bold text-slate-900 leading-snug">
@@ -134,11 +132,15 @@ export const DoctorsSection: React.FC<DoctorsSectionProps> = ({
                                 {sch.branchId} Branch:
                               </span>
                               <span className="text-slate-600">
-                                {sch.daysOfWeek.map((d) => dayNames[d]).join(', ')}
+                                {sch.daysOfWeek.length === 7
+                                  ? 'Daily (Mon - Sun)'
+                                  : sch.daysOfWeek.map((d) => dayNames[d]).join(', ')}
                               </span>
                             </div>
                             <span className="font-mono font-medium text-teal-800">
-                              {sch.startTime} - {sch.endTime}
+                              {sch.startTime === '10:00' && sch.endTime === '19:00'
+                                ? '10:00 AM - 07:00 PM'
+                                : `${sch.startTime} - ${sch.endTime}`}
                             </span>
                           </div>
                         ))

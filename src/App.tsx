@@ -27,6 +27,7 @@ import { RescheduleModal } from './components/RescheduleModal.js';
 import { ParentDashboard } from './components/ParentDashboard.js';
 import { ReceptionDashboard } from './components/ReceptionDashboard.js';
 import { AnalyticsModal } from './components/AnalyticsModal.js';
+import { TrackAppointmentModal } from './components/TrackAppointmentModal.js';
 
 export default function App() {
   const [activeTab, setActiveTab] = useState<string>('home');
@@ -42,6 +43,7 @@ export default function App() {
   const [isReceptionLoginOpen, setIsReceptionLoginOpen] = useState(false);
   const [isBookModalOpen, setIsBookModalOpen] = useState(false);
   const [isRescheduleModalOpen, setIsRescheduleModalOpen] = useState(false);
+  const [isTrackModalOpen, setIsTrackModalOpen] = useState(false);
   const [rescheduleTargetAppt, setRescheduleTargetAppt] = useState<Appointment | null>(null);
   const [isAnalyticsOpen, setIsAnalyticsOpen] = useState(false);
 
@@ -57,7 +59,7 @@ export default function App() {
   const [reviews, setReviews] = useState<HospitalReview[]>([]);
   const [config, setConfig] = useState<SystemConfiguration>({
     simulatedTime: '10:30',
-    simulatedDate: new Date().toISOString().split('T')[0],
+    simulatedDate: new Date().toLocaleDateString('en-CA'),
     isSimulating: false,
     slotDurationMinutes: 15,
     bufferFrequencySlots: 4,
@@ -133,7 +135,11 @@ export default function App() {
       handleOpenBooking();
       return;
     }
-    if (view === 'track' || view === 'parent-dashboard') {
+    if (view === 'track') {
+      setIsTrackModalOpen(true);
+      return;
+    }
+    if (view === 'parent-dashboard') {
       if (parentUser) {
         setActiveTab('parent-portal');
       } else {
@@ -173,6 +179,92 @@ export default function App() {
 
   const handleConfigUpdate = (newConfig: SystemConfiguration) => {
     setConfig(newConfig);
+  };
+
+  const handleAdvanceTime = async (minutes: number) => {
+    try {
+      const res = await fetch('/api/simulation/advance-time', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ minutes }),
+      });
+      const data = await res.json();
+      if (data.newTime) {
+        setConfig((prev) => ({ ...prev, simulatedTime: data.newTime }));
+      }
+      if (data.config) {
+        setConfig(data.config);
+      }
+      loadHospitalData();
+      if (parentUser) handleRefreshParent();
+    } catch (err) {
+      console.error('Advance time error:', err);
+    }
+  };
+
+  const handleSetTime = async (time: string) => {
+    try {
+      const res = await fetch('/api/simulation/advance-time', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ targetTime: time }),
+      });
+      const data = await res.json();
+      if (data.newTime) {
+        setConfig((prev) => ({ ...prev, simulatedTime: data.newTime }));
+      }
+      if (data.config) {
+        setConfig(data.config);
+      }
+      loadHospitalData();
+      if (parentUser) handleRefreshParent();
+    } catch (err) {
+      console.error('Set time error:', err);
+    }
+  };
+
+  const handleSetDate = async (date: string) => {
+    try {
+      const res = await fetch('/api/simulation/set-date', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ date }),
+      });
+      const data = await res.json();
+      if (data.newDate) {
+        setConfig((prev) => ({ ...prev, simulatedDate: data.newDate }));
+      }
+      if (data.config) {
+        setConfig(data.config);
+      }
+      loadHospitalData();
+      if (parentUser) handleRefreshParent();
+    } catch (err) {
+      console.error('Set date error:', err);
+    }
+  };
+
+  const handleTriggerScenario = async (scenarioId: string) => {
+    try {
+      const res = await fetch('/api/simulation/trigger-scenario', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ scenarioId }),
+      });
+      const data = await res.json();
+      if (data.config) {
+        setConfig(data.config);
+      }
+      loadHospitalData();
+      if (parentUser) handleRefreshParent();
+    } catch (err) {
+      console.error('Trigger scenario error:', err);
+    }
+  };
+
+  const handleRefreshAll = () => {
+    loadHospitalData();
+    if (parentUser) handleRefreshParent();
   };
 
   const handleOpenBooking = (doctorId?: string, branchId?: BranchId) => {
@@ -226,7 +318,17 @@ export default function App() {
   return (
     <div className="min-h-screen flex flex-col bg-white text-slate-900 selection:bg-teal-100 selection:text-teal-900">
       {/* Dev Simulation Bar for testing real-world operational scenarios */}
-      <SimulationBar config={config} onConfigUpdate={handleConfigUpdate} />
+      <SimulationBar
+        config={config}
+        simulatedTime={config.simulatedTime}
+        simulatedDate={config.simulatedDate}
+        onAdvanceTime={handleAdvanceTime}
+        onSetTime={handleSetTime}
+        onSetDate={handleSetDate}
+        onTriggerScenario={handleTriggerScenario}
+        onRefresh={handleRefreshAll}
+        onConfigUpdate={handleConfigUpdate}
+      />
 
       {/* Global Header */}
       <Header
@@ -265,17 +367,7 @@ export default function App() {
           <div>
             <HeroSection
               onBookClick={() => handleOpenBooking()}
-              onTrackQueueClick={() => {
-                if (parentUser) {
-                  setActiveTab('parent-portal');
-                } else {
-                  setIsParentLoginOpen(true);
-                }
-              }}
-              onDoctorScheduleClick={() => {
-                const el = document.getElementById('doctors');
-                el?.scrollIntoView({ behavior: 'smooth' });
-              }}
+              onTrackClick={() => setIsTrackModalOpen(true)}
             />
 
             <TrustSection />
@@ -345,6 +437,7 @@ export default function App() {
         branches={branches}
         initialDoctorId={bookingDoctorId}
         initialBranchId={bookingBranchId}
+        simulatedDate={config.simulatedDate}
         onBookingSuccess={(appointment, parent) => {
           if (parent) {
             setParentUser(parent);
@@ -366,6 +459,25 @@ export default function App() {
         appointment={rescheduleTargetAppt}
         onRescheduleSuccess={() => {
           handleRefreshParent();
+        }}
+      />
+
+      <TrackAppointmentModal
+        isOpen={isTrackModalOpen}
+        onClose={() => setIsTrackModalOpen(false)}
+        config={config}
+        initialMobile={parentUser?.mobile || ''}
+        onOpenBooking={() => {
+          setIsTrackModalOpen(false);
+          handleOpenBooking();
+        }}
+        onNavigateToParentPortal={() => {
+          setIsTrackModalOpen(false);
+          if (parentUser) {
+            setActiveTab('parent-portal');
+          } else {
+            setIsParentLoginOpen(true);
+          }
         }}
       />
 

@@ -46,11 +46,22 @@ export interface Child {
   ageYears?: number; // optional, disabled by default in UI
 }
 
+export interface ParentUnblockRecord {
+  timestamp: string;
+  justification: string;
+  receptionistName: string;
+}
+
 export interface Parent {
   id: string;
   name: string;
   mobile: string;
   children: Child[];
+  consecutiveNoShows?: number;
+  isBlocked?: boolean;
+  blockedReason?: string;
+  blockedAt?: string;
+  unblockHistory?: ParentUnblockRecord[];
 }
 
 export type AppointmentStatus =
@@ -68,6 +79,7 @@ export type AppointmentStatus =
   | 'HOSPITAL_CANCELLED';
 
 export type PaymentStatus = 'PENDING' | 'PAID';
+export type PaymentMethod = 'CASH' | 'PHONEPE';
 
 export interface AppointmentHistoryItem {
   timestamp: string;
@@ -93,6 +105,7 @@ export interface Appointment {
   recommendedArrivalTime: string; // "10:27" (15m before expected)
   status: AppointmentStatus;
   paymentStatus: PaymentStatus;
+  paymentMethod?: PaymentMethod;
   bookingSource: 'ONLINE' | 'RECEPTION_PHONE' | 'WALK_IN';
   advanceNoticePreferenceMinutes: number; // 10, 20, 30, 45, 60 (default 30)
   isEmergency?: boolean;
@@ -191,4 +204,92 @@ export interface OperationalAnalytics {
   emergencyAdjustments: number;
   appointmentsTreatedEarlierThanBooked: number;
   averageScheduleDelayMinutes: number;
+  cashPayments: number;
+  phonePePayments: number;
 }
+
+// --- PEDIATRIC VACCINATION & IMMUNIZATION (IAP 2018) ---
+
+export type VaccinationDoseStatus = 'PENDING' | 'DUE_SOON' | 'OVERDUE' | 'GIVEN' | 'SKIPPED';
+
+export interface VaccineMilestoneDef {
+  id: string; // e.g. 'birth', '6-weeks', '10-weeks', '14-weeks', '6-months', etc.
+  ageLabel: string; // e.g. 'Birth', '6 Weeks', '10 Weeks'
+  offsetDays: number; // offset in days from baseline birth
+  vaccines: string[]; // e.g. ['BCG', 'Hep B 1', 'OPV 0']
+  description?: string;
+  mandatory?: boolean;
+}
+
+export interface VaccinationDose {
+  id: string;
+  milestoneId: string;
+  ageLabel: string;
+  vaccines: string[];
+  dueDate: string; // YYYY-MM-DD calculated from first dose anchor
+  status: VaccinationDoseStatus;
+  givenDate?: string; // YYYY-MM-DD
+  administeredBy?: string; // Doctor or nurse name
+  batchNumber?: string;
+  weightKg?: number;
+  heightCm?: number;
+  headCircumferenceCm?: number;
+  notes?: string;
+  updatedAt?: string;
+}
+
+export interface ChildVaccinationProgram {
+  id: string;
+  childId: string;
+  childName: string;
+  childGender: 'Boy' | 'Girl';
+  parentId: string;
+  parentName: string;
+  parentMobile: string;
+  registeredDate: string; // YYYY-MM-DD
+  firstVaccineDate: string; // YYYY-MM-DD anchor date
+  firstMilestoneId: string; // milestone when first vaccine was given (default 'birth')
+  baselineBirthDate: string; // imputed birth baseline for day calculations
+  registrationFeePaid: boolean;
+  registrationAmount?: number;
+  registeredByBranchId: BranchId;
+  doses: VaccinationDose[];
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface VaccineCallReminderLog {
+  id: string;
+  programId: string;
+  childId: string;
+  childName: string;
+  parentId: string;
+  parentName: string;
+  parentMobile: string;
+  milestoneId: string;
+  milestoneLabel: string;
+  dueDate: string;
+  calledAt: string; // YYYY-MM-DD HH:mm
+  receptionistName: string;
+  callOutcome: 'CONFIRMED' | 'CALL_LATER' | 'NOT_REACHABLE' | 'ALREADY_VACCINATED_ELSEWHERE';
+  notes: string;
+}
+
+export interface UpcomingVaccineReminderItem {
+  programId: string;
+  childId: string;
+  childName: string;
+  childGender: 'Boy' | 'Girl';
+  parentId: string;
+  parentName: string;
+  parentMobile: string;
+  doseId: string;
+  milestoneId: string;
+  milestoneLabel: string;
+  vaccines: string[];
+  dueDate: string;
+  daysRemaining: number; // positive = days until due, 0 = due today, negative = overdue
+  urgency: 'OVERDUE' | 'DUE_TODAY' | 'DUE_WITHIN_7_DAYS' | 'DUE_WITHIN_15_DAYS';
+  lastCallLog?: VaccineCallReminderLog;
+}
+

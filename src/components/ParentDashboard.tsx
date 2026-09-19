@@ -22,7 +22,12 @@ import {
   ChevronRight,
   Shield,
   Heart,
+  Syringe,
+  Baby,
+  Sparkles,
 } from 'lucide-react';
+import { ChildVaccineTracker } from './ChildVaccineTracker.js';
+import { ChildVaccinationProgram } from '../types/index.js';
 
 interface ParentDashboardProps {
   parentUser: Parent;
@@ -48,6 +53,14 @@ export const ParentDashboard: React.FC<ParentDashboardProps> = ({
   const [showAddChildModal, setShowAddChildModal] = useState(false);
   const [newChildName, setNewChildName] = useState('');
 
+  // Vaccination Program State
+  const [activeTab, setActiveTab] = useState<'APPOINTMENTS' | 'VACCINES'>('APPOINTMENTS');
+  const [vaccinePrograms, setVaccinePrograms] = useState<ChildVaccinationProgram[]>([]);
+  const [selectedChildIdForVaccine, setSelectedChildIdForVaccine] = useState<string>(
+    parentUser.children?.[0]?.id || ''
+  );
+  const [loadingVaccines, setLoadingVaccines] = useState(false);
+
   // Fetch appointments for this parent
   useEffect(() => {
     fetchParentAppointments();
@@ -69,6 +82,28 @@ export const ParentDashboard: React.FC<ParentDashboardProps> = ({
       setLoading(false);
     }
   };
+
+  const fetchVaccinePrograms = async () => {
+    setLoadingVaccines(true);
+    try {
+      const res = await fetch(`/api/vaccinations/parent/${parentUser.id}`);
+      const data = await res.json();
+      if (data.success && Array.isArray(data.programs)) {
+        setVaccinePrograms(data.programs);
+        if (!selectedChildIdForVaccine && data.programs.length > 0) {
+          setSelectedChildIdForVaccine(data.programs[0].childId);
+        }
+      }
+    } catch (err) {
+      console.error('Error fetching vaccination programs:', err);
+    } finally {
+      setLoadingVaccines(false);
+    }
+  };
+
+  useEffect(() => {
+    fetchVaccinePrograms();
+  }, [parentUser.id, config.simulatedDate]);
 
   const handleSaveChildName = async () => {
     if (!editingChild || !editChildName.trim()) return;
@@ -174,6 +209,173 @@ export const ParentDashboard: React.FC<ParentDashboardProps> = ({
           </div>
         </div>
 
+        {/* Blocked / Restriction Banner for Parent */}
+        {parentUser.isBlocked && (
+          <div
+            id="parent-account-blocked-banner"
+            className="p-5 sm:p-6 rounded-3xl bg-rose-50 border-2 border-rose-300 text-rose-950 shadow-sm animate-in fade-in space-y-3"
+          >
+            <div className="flex items-start gap-3.5">
+              <div className="w-10 h-10 rounded-2xl bg-rose-200 text-rose-800 flex items-center justify-center shrink-0 font-bold text-lg">
+                🚫
+              </div>
+              <div className="space-y-1 text-xs sm:text-sm flex-1">
+                <div className="font-extrabold text-rose-950 text-base">
+                  Online Booking Privileges Suspended
+                </div>
+                <div className="font-semibold text-rose-900 leading-relaxed bg-rose-100/90 p-3 rounded-2xl border border-rose-200 text-xs sm:text-sm">
+                  "As you didn't respect your appointment slot, we are temporarily blocking your appointment booking."
+                </div>
+                <p className="text-xs text-rose-700 leading-relaxed pt-1">
+                  You have <strong>3 consecutive unattended appointments</strong> marked as No-Show without prior cancellation or rescheduling. To maintain queue fairness for other pediatric patients, your online booking is temporarily blocked.
+                </p>
+              </div>
+            </div>
+
+            <div className="pt-3 border-t border-rose-200/80 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+              <div className="text-xs text-rose-900 font-semibold flex items-center gap-2">
+                <span>Please call hospital reception to provide justification and restore booking:</span>
+              </div>
+              <a
+                href="tel:08842374444"
+                className="inline-flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl bg-rose-700 hover:bg-rose-800 text-white font-bold text-xs shadow-sm transition"
+              >
+                <Phone className="w-4 h-4" />
+                <span>Call Reception: 0884-2374444 / +91 98481 23456</span>
+              </a>
+            </div>
+          </div>
+        )}
+
+        {/* Main Tab Navigation Switcher */}
+        <div className="flex items-center gap-2 border-b border-slate-200/80 pb-2">
+          <button
+            id="parent-tab-appointments"
+            onClick={() => setActiveTab('APPOINTMENTS')}
+            className={`px-5 py-2.5 rounded-2xl text-xs sm:text-sm font-bold flex items-center gap-2 transition cursor-pointer ${
+              activeTab === 'APPOINTMENTS'
+                ? 'bg-teal-700 text-white shadow-sm'
+                : 'bg-white text-slate-600 hover:bg-slate-100 border border-slate-200'
+            }`}
+          >
+            <Calendar className="w-4 h-4" />
+            <span>OPD Consultations &amp; Queue</span>
+            {safeAppointments.filter((a) => ['BOOKED', 'APPROACHING', 'WAITING', 'ARRIVED'].includes(a.status)).length > 0 && (
+              <span className="px-2 py-0.5 rounded-full text-[10px] bg-teal-500 text-white font-black">
+                {safeAppointments.filter((a) => ['BOOKED', 'APPROACHING', 'WAITING', 'ARRIVED'].includes(a.status)).length}
+              </span>
+            )}
+          </button>
+
+          <button
+            id="parent-tab-vaccines"
+            onClick={() => setActiveTab('VACCINES')}
+            className={`px-5 py-2.5 rounded-2xl text-xs sm:text-sm font-bold flex items-center gap-2 transition cursor-pointer ${
+              activeTab === 'VACCINES'
+                ? 'bg-teal-700 text-white shadow-sm'
+                : 'bg-white text-slate-600 hover:bg-slate-100 border border-slate-200'
+            }`}
+          >
+            <Syringe className="w-4 h-4" />
+            <span>Child Vaccines &amp; Immunization (IAP 2018)</span>
+            {vaccinePrograms.length > 0 && (
+              <span className="px-2 py-0.5 rounded-full text-[10px] bg-emerald-600 text-white font-black">
+                {vaccinePrograms.length} Enrolled
+              </span>
+            )}
+          </button>
+        </div>
+
+        {/* TAB 2: VACCINATION TRACKER VIEW */}
+        {activeTab === 'VACCINES' && (
+          <div className="space-y-6">
+            {/* Child Selector Pills if parent has multiple children */}
+            {parentUser.children && parentUser.children.length > 0 && (
+              <div className="flex items-center gap-2 overflow-x-auto pb-1">
+                <span className="text-xs font-semibold text-slate-500 mr-1">Select Child:</span>
+                {parentUser.children.map((child) => {
+                  const hasProg = vaccinePrograms.some((p) => p.childId === child.id);
+                  const isSelected = selectedChildIdForVaccine === child.id;
+
+                  return (
+                    <button
+                      key={child.id}
+                      id={`parent-vac-child-${child.id}`}
+                      onClick={() => setSelectedChildIdForVaccine(child.id)}
+                      className={`px-4 py-2 rounded-2xl text-xs font-bold transition flex items-center gap-2 cursor-pointer ${
+                        isSelected
+                          ? 'bg-teal-700 text-white shadow-sm'
+                          : 'bg-white text-slate-700 hover:bg-slate-50 border border-slate-200'
+                      }`}
+                    >
+                      <Baby className="w-4 h-4" />
+                      <span>{child.name}</span>
+                      {hasProg ? (
+                        <span className="w-2 h-2 rounded-full bg-emerald-400" />
+                      ) : (
+                        <span className="text-[10px] font-normal text-slate-400">(Unregistered)</span>
+                      )}
+                    </button>
+                  );
+                })}
+              </div>
+            )}
+
+            {/* Display Selected Child's Vaccination Tracker */}
+            {(() => {
+              const selectedProg = vaccinePrograms.find(
+                (p) => p.childId === selectedChildIdForVaccine
+              );
+
+              if (selectedProg) {
+                return (
+                  <ChildVaccineTracker
+                    program={selectedProg}
+                    onRefresh={fetchVaccinePrograms}
+                    onBookAppointment={() => {
+                      onOpenBookAppointment();
+                    }}
+                  />
+                );
+              }
+
+              const selectedChildObj = parentUser.children?.find(
+                (c) => c.id === selectedChildIdForVaccine
+              );
+
+              return (
+                <div className="bg-white rounded-3xl p-8 sm:p-10 border border-slate-200/80 shadow-xs text-center space-y-4">
+                  <div className="w-16 h-16 rounded-3xl bg-teal-50 text-teal-700 border border-teal-100 flex items-center justify-center mx-auto">
+                    <Syringe className="w-8 h-8" />
+                  </div>
+                  <div>
+                    <h3 className="text-xl font-bold text-slate-900">
+                      {selectedChildObj?.name || 'Child'} is not enrolled in the Vaccine Program yet
+                    </h3>
+                    <p className="text-xs sm:text-sm text-slate-500 max-w-lg mx-auto mt-2">
+                      After paying the vaccine registration fee, our hospital receptionist will register your child and anchor their IAP 2018 schedule to their first vaccine date.
+                    </p>
+                  </div>
+
+                  <div className="pt-2 flex flex-wrap justify-center gap-3">
+                    <button
+                      onClick={onOpenBookAppointment}
+                      className="px-5 py-2.5 rounded-xl bg-teal-600 hover:bg-teal-700 text-white font-bold text-xs shadow-md transition flex items-center gap-2 cursor-pointer"
+                    >
+                      <Calendar className="w-4 h-4" />
+                      <span>Book OPD Consultation</span>
+                    </button>
+                  </div>
+                </div>
+              );
+            })()}
+          </div>
+        )}
+
+        {/* TAB 1: APPOINTMENTS & LIVE QUEUE VIEW */}
+        {activeTab === 'APPOINTMENTS' && (
+          <div className="space-y-8">
+
         {/* Section: Today's Active Live Booking Tracker (HIGHLIGHTED) */}
         {todayActiveAppointment ? (
           <div className="space-y-3">
@@ -225,7 +427,14 @@ export const ParentDashboard: React.FC<ParentDashboardProps> = ({
               <div>
                 <span className="text-slate-400 block text-[11px]">Consultation Date &amp; Time:</span>
                 <strong className="text-teal-900 text-sm">{otherUpcomingAppointments[0].date} at {otherUpcomingAppointments[0].bookedTime}</strong>
-                <div className="text-slate-500 text-[11px]">Arrive by {otherUpcomingAppointments[0].recommendedArrivalTime}</div>
+                {Boolean(
+                  otherUpcomingAppointments[0].actualArrivalTime ||
+                  ['ARRIVED', 'WAITING', 'WITH_DOCTOR', 'COMPLETED'].includes(otherUpcomingAppointments[0].status)
+                ) ? (
+                  <div className="text-emerald-700 font-semibold text-[11px]">✓ Checked in at hospital</div>
+                ) : (
+                  <div className="text-slate-500 text-[11px]">Arrive by {otherUpcomingAppointments[0].recommendedArrivalTime}</div>
+                )}
               </div>
               <div className="flex items-center sm:justify-end gap-2 pt-2 sm:pt-0">
                 <button
@@ -379,8 +588,10 @@ export const ParentDashboard: React.FC<ParentDashboardProps> = ({
             )}
           </div>
         </div>
+      </div>
+    )}
 
-        {/* Modal: Edit Child Name */}
+        {/* Modal: Edit Child Profile */}
         {editingChild && (
           <div className="fixed inset-0 z-50 bg-slate-950/70 backdrop-blur-xs flex items-center justify-center p-4">
             <div className="bg-white rounded-3xl max-w-sm w-full p-6 space-y-4 shadow-2xl relative animate-in zoom-in-95">

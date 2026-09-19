@@ -175,16 +175,38 @@ export const LiveQueueCard: React.FC<LiveQueueCardProps> = ({
           <span className="text-[10px] text-teal-700 block mt-0.5">Dynamically updated</span>
         </div>
 
-        {/* Please Arrive By */}
-        <div className="p-3 bg-sky-50/80 rounded-xl border border-sky-200">
-          <span className="text-[11px] font-bold text-sky-800 block uppercase tracking-wider">
-            Please Arrive By
-          </span>
-          <div className="text-xl sm:text-2xl font-black text-sky-950 font-mono mt-1">
-            {appointment.recommendedArrivalTime}
+        {/* Please Arrive By / Check-in Completed */}
+        {Boolean(
+          appointment.actualArrivalTime ||
+          ['ARRIVED', 'WAITING', 'WITH_DOCTOR', 'COMPLETED'].includes(appointment.status)
+        ) ? (
+          <div className="p-3 bg-emerald-50/90 rounded-xl border border-emerald-300">
+            <span className="text-[11px] font-bold text-emerald-800 block uppercase tracking-wider flex items-center gap-1">
+              <CheckCircle className="w-3.5 h-3.5 text-emerald-600" />
+              Check-in Completed
+            </span>
+            <div className="text-xl sm:text-2xl font-black text-emerald-950 font-mono mt-1">
+              {appointment.actualArrivalTime ? appointment.actualArrivalTime : 'At Hospital'}
+            </div>
+            <span className="text-[10px] text-emerald-700 block mt-0.5 font-medium">
+              {appointment.status === 'WITH_DOCTOR'
+                ? 'Inside consultation room'
+                : appointment.status === 'COMPLETED'
+                ? 'Consultation concluded'
+                : 'Waiting in hospital lounge'}
+            </span>
           </div>
-          <span className="text-[10px] text-sky-700 block mt-0.5">15 min before expected</span>
-        </div>
+        ) : (
+          <div className="p-3 bg-sky-50/80 rounded-xl border border-sky-200">
+            <span className="text-[11px] font-bold text-sky-800 block uppercase tracking-wider">
+              Please Arrive By
+            </span>
+            <div className="text-xl sm:text-2xl font-black text-sky-950 font-mono mt-1">
+              {appointment.recommendedArrivalTime}
+            </div>
+            <span className="text-[10px] text-sky-700 block mt-0.5">15 min before expected</span>
+          </div>
+        )}
       </div>
 
       {/* Children Ahead & Queue Progress Bar */}
@@ -287,6 +309,13 @@ export const LiveQueueCard: React.FC<LiveQueueCardProps> = ({
         <div className="text-[11px] text-slate-500">
           {canReschedule ? (
             <span>Online reschedule available until 60 minutes before slot.</span>
+          ) : Boolean(
+              appointment.actualArrivalTime ||
+              ['ARRIVED', 'WAITING', 'WITH_DOCTOR', 'COMPLETED'].includes(appointment.status)
+            ) ? (
+            <span className="text-emerald-800 font-semibold flex items-center gap-1">
+              ✓ Checked in at hospital — queue tracking active.
+            </span>
           ) : (
             <span className="text-amber-800 font-medium">
               Your appointment is approaching and can no longer be rescheduled online. Please proceed to the hospital as planned.

@@ -31,6 +31,7 @@ interface BookAppointmentModalProps {
   branches: HospitalBranch[];
   initialDoctorId?: string;
   initialBranchId?: BranchId;
+  simulatedDate?: string;
   onBookingSuccess: (appointment: Appointment, parent?: Parent) => void;
   onViewDashboard?: () => void;
 }
@@ -44,13 +45,15 @@ export const BookAppointmentModal: React.FC<BookAppointmentModalProps> = ({
   branches,
   initialDoctorId,
   initialBranchId,
+  simulatedDate,
   onBookingSuccess,
   onViewDashboard,
 }) => {
+  const todayStr = simulatedDate || new Date().toLocaleDateString('en-CA');
   // Selection states (with smart defaults for 1-click experience)
   const [selectedBranchId, setSelectedBranchId] = useState<BranchId>(initialBranchId || 'kakinada');
   const [selectedDoctorId, setSelectedDoctorId] = useState<string>(initialDoctorId || 'dr-subba-rao');
-  const [selectedDate, setSelectedDate] = useState<string>(new Date().toISOString().split('T')[0]);
+  const [selectedDate, setSelectedDate] = useState<string>(todayStr);
   const [selectedTime, setSelectedTime] = useState<string>('');
 
   // Patient details state
@@ -65,15 +68,48 @@ export const BookAppointmentModal: React.FC<BookAppointmentModalProps> = ({
   const [bookingLoading, setBookingLoading] = useState<boolean>(false);
   const [errorMsg, setErrorMsg] = useState<string>('');
   const [confirmedAppt, setConfirmedAppt] = useState<Appointment | null>(null);
+  const [isBlockedPatient, setIsBlockedPatient] = useState<boolean>(false);
+  const [blockedReasonMsg, setBlockedReasonMsg] = useState<string>('');
 
   // Track previous open state so parentUser updates don't wipe out confirmedAppt
   const prevIsOpenRef = React.useRef(false);
 
   // Date calculation helpers
-  const todayStr = new Date().toISOString().split('T')[0];
-  const tomorrow = new Date();
+  const tomorrow = new Date(todayStr);
   tomorrow.setDate(tomorrow.getDate() + 1);
-  const tomorrowStr = tomorrow.toISOString().split('T')[0];
+  const tomorrowStr = tomorrow.toLocaleDateString('en-CA');
+
+  const checkPatientBlockStatus = async (mobileToCheck?: string, parentIdToCheck?: string) => {
+    try {
+      const cleanMob = (mobileToCheck !== undefined ? mobileToCheck : parentMobile).trim().replace(/\D/g, '');
+      const pId = parentIdToCheck !== undefined ? parentIdToCheck : (parentUser?.id || '');
+
+      if (!pId && cleanMob.length < 10) {
+        setIsBlockedPatient(false);
+        setBlockedReasonMsg('');
+        return;
+      }
+
+      const queryParts: string[] = [];
+      if (cleanMob.length >= 10) queryParts.push(`mobile=${encodeURIComponent(cleanMob)}`);
+      if (pId) queryParts.push(`parentId=${encodeURIComponent(pId)}`);
+
+      const res = await fetch(`/api/parents/booking-status?${queryParts.join('&')}`);
+      const data = await res.json();
+      if (data && data.isBlocked) {
+        setIsBlockedPatient(true);
+        setBlockedReasonMsg(
+          data.blockedReason ||
+            "As you didn't respect your appointment slot, we are temporarily blocking your appointment booking."
+        );
+      } else {
+        setIsBlockedPatient(false);
+        setBlockedReasonMsg('');
+      }
+    } catch (err) {
+      // Ignore network errors on status check
+    }
+  };
 
   // Reset or pre-fill ONLY when modal transitions from closed to open
   useEffect(() => {
@@ -81,6 +117,8 @@ export const BookAppointmentModal: React.FC<BookAppointmentModalProps> = ({
       setErrorMsg('');
       setConfirmedAppt(null);
       setBookingLoading(false);
+      setIsBlockedPatient(false);
+      setBlockedReasonMsg('');
 
       if (initialDoctorId) setSelectedDoctorId(initialDoctorId);
       if (initialBranchId) setSelectedBranchId(initialBranchId);
@@ -95,6 +133,7 @@ export const BookAppointmentModal: React.FC<BookAppointmentModalProps> = ({
           setSelectedChildId('');
           setChildName('');
         }
+        checkPatientBlockStatus(parentUser.mobile, parentUser.id);
       } else {
         setSelectedChildId('');
         // Keep entered child/mobile if any, or leave clean
@@ -204,6 +243,10 @@ export const BookAppointmentModal: React.FC<BookAppointmentModalProps> = ({
       const data = await res.json();
 
       if (!res.ok || !data.success) {
+        if (data.isBlocked) {
+          setIsBlockedPatient(true);
+          setBlockedReasonMsg(data.message);
+        }
         setErrorMsg(data.message || 'Could not complete booking. Please try another slot.');
         setBookingLoading(false);
         return;
@@ -224,15 +267,20 @@ export const BookAppointmentModal: React.FC<BookAppointmentModalProps> = ({
   const currentDoctor = doctors.find((d) => d.id === selectedDoctorId) || doctors[0];
   const currentBranch = branches.find((b) => b.id === selectedBranchId) || branches[0];
 
-  // Group slots into Morning and Evening for easy mobile browsing
+  // Group slots into Morning, Afternoon, and Evening for easy mobile browsing (10:00 AM - 07:00 PM)
   const morningSlots = slots.filter((s) => {
     const hour = parseInt(s.time.split(':')[0], 10);
-    return hour < 14;
+    return hour < 13;
+  });
+
+  const afternoonSlots = slots.filter((s) => {
+    const hour = parseInt(s.time.split(':')[0], 10);
+    return hour >= 13 && hour < 16;
   });
 
   const eveningSlots = slots.filter((s) => {
     const hour = parseInt(s.time.split(':')[0], 10);
-    return hour >= 14;
+    return hour >= 16;
   });
 
   return (
@@ -273,10 +321,10 @@ export const BookAppointmentModal: React.FC<BookAppointmentModalProps> = ({
             {/* Prominent confirmation banner requested by user */}
             <div className="bg-emerald-50 border border-emerald-300/80 rounded-2xl p-4 sm:p-5 text-emerald-950 space-y-2 shadow-xs text-center">
               <span className="text-[11px] font-bold uppercase tracking-wider text-emerald-800 bg-emerald-100/90 px-3 py-1 rounded-full border border-emerald-300 inline-block">
-                ✓ Appointment Fixed Successfully
+                ✓ Appointment Booked Successfully
               </span>
               <h3 className="text-base sm:text-lg font-extrabold text-emerald-900 leading-snug">
-                Your appointment was confirmed with <span className="text-teal-800 underline decoration-teal-600">{confirmedAppt.doctorName}</span> at <span className="text-teal-800 underline decoration-teal-600">{confirmedAppt.bookedTime}</span> on <span className="text-teal-800 underline decoration-teal-600">{confirmedAppt.date}</span>.
+                Your appointment was booked successfully with <span className="text-teal-800 underline decoration-teal-600">{confirmedAppt.doctorName}</span> at <span className="text-teal-800 underline decoration-teal-600">{confirmedAppt.bookedTime}</span> on <span className="text-teal-800 underline decoration-teal-600">{confirmedAppt.date}</span>.
               </h3>
               <p className="text-xs text-emerald-700 font-medium">
                 Child: <strong>{confirmedAppt.childName}</strong> • Hospital: <strong>{confirmedAppt.branchName}</strong>
@@ -508,7 +556,7 @@ export const BookAppointmentModal: React.FC<BookAppointmentModalProps> = ({
                   Doctor has no regular clinic session on this date. Please pick another date or doctor above.
                 </div>
               ) : (
-                <div className="space-y-2 max-h-40 overflow-y-auto pr-1">
+                <div className="space-y-3 max-h-52 overflow-y-auto pr-1">
                   {morningSlots.length > 0 && (
                     <div>
                       <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block mb-1.5">
@@ -539,10 +587,40 @@ export const BookAppointmentModal: React.FC<BookAppointmentModalProps> = ({
                     </div>
                   )}
 
-                  {eveningSlots.length > 0 && (
-                    <div className="pt-2">
+                  {afternoonSlots.length > 0 && (
+                    <div className="pt-1">
                       <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block mb-1.5">
-                        🌅 Evening Session (05:00 PM – 08:00 PM)
+                        🌤️ Afternoon Session (01:00 PM – 04:00 PM)
+                      </span>
+                      <div className="grid grid-cols-4 sm:grid-cols-5 gap-1.5">
+                        {afternoonSlots.map((slot) => {
+                          const isSelected = selectedTime === slot.time;
+                          return (
+                            <button
+                              key={slot.time}
+                              type="button"
+                              disabled={!slot.available}
+                              onClick={() => setSelectedTime(slot.time)}
+                              className={`py-2 px-1 rounded-xl text-xs font-bold transition text-center cursor-pointer ${
+                                isSelected
+                                  ? 'bg-teal-600 text-white shadow-xs scale-102 ring-2 ring-teal-600/30'
+                                  : slot.available
+                                  ? 'bg-slate-100 hover:bg-teal-50 text-slate-800 hover:text-teal-900 border border-slate-200'
+                                  : 'bg-slate-50 text-slate-300 cursor-not-allowed opacity-50 line-through'
+                              }`}
+                            >
+                              {slot.time}
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  )}
+
+                  {eveningSlots.length > 0 && (
+                    <div className="pt-1">
+                      <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block mb-1.5">
+                        🌅 Evening Session (04:00 PM – 07:00 PM)
                       </span>
                       <div className="grid grid-cols-4 sm:grid-cols-5 gap-1.5">
                         {eveningSlots.map((slot) => {
@@ -657,7 +735,17 @@ export const BookAppointmentModal: React.FC<BookAppointmentModalProps> = ({
                     maxLength={10}
                     placeholder="10-digit mobile number"
                     value={parentMobile}
-                    onChange={(e) => setParentMobile(e.target.value)}
+                    onChange={(e) => {
+                      const val = e.target.value;
+                      setParentMobile(val);
+                      const clean = val.replace(/\D/g, '');
+                      if (clean.length === 10) {
+                        checkPatientBlockStatus(clean);
+                      } else if (isBlockedPatient && !parentUser) {
+                        setIsBlockedPatient(false);
+                        setBlockedReasonMsg('');
+                      }
+                    }}
                     className="w-full px-3 py-2.5 rounded-xl bg-white border border-slate-300 text-xs font-bold text-slate-900 font-mono focus:outline-none focus:border-teal-500"
                   />
                 </div>
@@ -678,8 +766,45 @@ export const BookAppointmentModal: React.FC<BookAppointmentModalProps> = ({
                   />
                 </div>
               )}
-              {/* Error message displayed at bottom near submit button so user instantly spots it */}
-              {errorMsg && (
+
+              {/* Blocked Patient Alert Banner */}
+              {isBlockedPatient ? (
+                <div
+                  id="quick-book-blocked-alert"
+                  className="p-4 rounded-2xl bg-rose-50 border-2 border-rose-400 text-rose-950 space-y-3 shadow-md animate-in fade-in slide-in-from-bottom-2 duration-200"
+                >
+                  <div className="flex items-start gap-3">
+                    <div className="w-8 h-8 rounded-xl bg-rose-200 text-rose-800 flex items-center justify-center shrink-0 font-bold text-sm">
+                      🚫
+                    </div>
+                    <div className="space-y-1.5 text-xs flex-1">
+                      <div className="font-extrabold text-rose-950 text-sm sm:text-base">
+                        Online Booking Temporarily Suspended
+                      </div>
+                      <div className="font-semibold text-rose-900 leading-relaxed text-xs sm:text-sm bg-rose-100/90 p-2.5 rounded-xl border border-rose-200">
+                        "{blockedReasonMsg || "As you didn't respect your appointment slot, we are temporarily blocking your appointment booking."}"
+                      </div>
+                      <div className="text-[11px] text-rose-700">
+                        You have 3 consecutive unattended appointments marked as No-Show without prior cancellation.
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="pt-2 border-t border-rose-200 flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                    <div className="text-[11px] text-rose-900 font-medium">
+                      Contact reception to explain your reason &amp; re-enable booking:
+                    </div>
+                    <a
+                      href="tel:08842374444"
+                      className="inline-flex items-center justify-center gap-2 px-3.5 py-2 rounded-xl bg-rose-700 hover:bg-rose-800 text-white font-bold text-xs shadow-xs transition cursor-pointer"
+                    >
+                      <Phone className="w-3.5 h-3.5" />
+                      <span>Call Reception (0884-2374444)</span>
+                    </a>
+                  </div>
+                </div>
+              ) : errorMsg ? (
+                /* Standard error message */
                 <div
                   id="quick-book-error-banner"
                   className="p-3.5 rounded-2xl bg-rose-50 border-2 border-rose-300 text-rose-950 text-xs flex items-center gap-2.5 shadow-sm animate-in fade-in slide-in-from-bottom-2 duration-200"
@@ -689,16 +814,28 @@ export const BookAppointmentModal: React.FC<BookAppointmentModalProps> = ({
                     {errorMsg}
                   </div>
                 </div>
-              )}
+              ) : null}
 
               <button
                 id="quick-book-submit-btn"
                 type="submit"
-                disabled={bookingLoading || !selectedTime || !childName.trim() || !parentMobile.trim()}
-                className="w-full py-3.5 px-4 rounded-2xl bg-teal-600 hover:bg-teal-700 disabled:opacity-50 text-white font-bold text-sm sm:text-base flex items-center justify-center gap-2 shadow-lg shadow-teal-600/25 cursor-pointer transition active:scale-98"
+                disabled={
+                  isBlockedPatient ||
+                  bookingLoading ||
+                  !selectedTime ||
+                  !childName.trim() ||
+                  !parentMobile.trim()
+                }
+                className={`w-full py-3.5 px-4 rounded-2xl text-white font-bold text-sm sm:text-base flex items-center justify-center gap-2 shadow-lg transition active:scale-98 ${
+                  isBlockedPatient
+                    ? 'bg-slate-400 cursor-not-allowed opacity-80 shadow-none'
+                    : 'bg-teal-600 hover:bg-teal-700 disabled:opacity-50 shadow-teal-600/25 cursor-pointer'
+                }`}
               >
                 <span>
-                  {bookingLoading
+                  {isBlockedPatient
+                    ? '🚫 Booking Temporarily Blocked (Contact Reception)'
+                    : bookingLoading
                     ? 'Securing Consultation Token...'
                     : `Confirm & Get Token ${selectedTime ? `(${selectedTime})` : ''} ➔`}
                 </span>

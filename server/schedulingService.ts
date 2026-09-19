@@ -5,6 +5,8 @@ import {
   BranchId,
   DoctorSession,
   SlotAvailability,
+  Parent,
+  PaymentMethod,
 } from '../src/types/index.js';
 
 // Helper: convert HH:mm string to minutes from midnight
@@ -22,6 +24,43 @@ export function minutesToTime(minutes: number): string {
 }
 
 export class SchedulingService {
+  public ensureDoctorSession(doctorId: string, branchId: BranchId, date: string): DoctorSession {
+    const state = db.getState();
+    let session = state.sessions.find(
+      (s) => s.doctorId === doctorId && s.branchId === branchId && s.date === date
+    );
+    if (!session) {
+      const doctorSchedule = state.schedules.find(
+        (s) => s.doctorId === doctorId && s.branchId === branchId && s.isAvailable
+      );
+      session = {
+        doctorId,
+        branchId,
+        date,
+        scheduledStart: doctorSchedule?.startTime || '10:00',
+        actualStart: doctorSchedule?.startTime || '10:00',
+        status: 'IN_SESSION',
+        currentDelayMinutes: 0,
+        avgConsultationDurationMinutes: doctorSchedule?.slotDurationMinutes || 15,
+        bufferAvailableMinutes: 20,
+        emergencyAdjustmentCount: 0,
+      };
+      state.sessions.push(session);
+    }
+    return session;
+  }
+
+  public ensureDoctorSessionsForDate(date: string): void {
+    const state = db.getState();
+    const [y, m, d] = date.split('-').map(Number);
+    const dayOfWeek = new Date(y, m - 1, d).getDay();
+    state.schedules.forEach((sch) => {
+      if (sch.isAvailable && sch.daysOfWeek.includes(dayOfWeek)) {
+        this.ensureDoctorSession(sch.doctorId, sch.branchId, date);
+      }
+    });
+  }
+
   /**
    * Recalculates expected consultation times and queue metrics for a doctor session.
    * Employs rolling train-ETA model: near-term appointments absorb delay;
@@ -29,11 +68,13 @@ export class SchedulingService {
    */
   public recalculateSessionQueue(doctorId: string, branchId: BranchId, date: string): void {
     const state = db.getState();
-    const session = state.sessions.find(
+    let session = state.sessions.find(
       (s) => s.doctorId === doctorId && s.branchId === branchId && s.date === date
     );
 
-    if (!session) return;
+    if (!session) {
+      session = this.ensureDoctorSession(doctorId, branchId, date);
+    }
 
     // Fetch all active appointments for this doctor, branch, and date ordered by booked time
     const dayAppointments = state.appointments
@@ -241,6 +282,15 @@ export class SchedulingService {
   }): { success: boolean; appointment?: Appointment; message?: string } {
     const state = db.getState();
 
+    // 0. Check if parent is blocked due to consecutive no-shows
+    const parent = state.parents.find((p) => p.id === params.parentId);
+    if (parent && parent.isBlocked) {
+      return {
+        success: false,
+        message: "As you didn't respect your appointment slot, we are temporarily blocking your appointment booking. Please contact hospital reception to re-enable booking.",
+      };
+    }
+
     // 1. One Active Appointment Rule
     if (!this.checkOneActiveAppointmentRule(params.childId, params.doctorId, params.date)) {
       return {
@@ -268,8 +318,7 @@ export class SchedulingService {
       };
     }
 
-    // Find parent & child
-    const parent = state.parents.find((p) => p.id === params.parentId);
+    // Verify parent & child
     if (!parent) return { success: false, message: 'Parent account not found.' };
 
     const child = parent.children.find((c) => c.id === params.childId);
@@ -281,17 +330,23 @@ export class SchedulingService {
     const branch = state.branches.find((b) => b.id === params.branchId);
     if (!branch) return { success: false, message: 'Branch not found.' };
 
-    const branchCode = params.branchId === 'kakinada' ? 'KAK' : 'PIT';
+    const branchInitial = params.branchId === 'kakinada' ? 'K' : 'P';
+
     const dateParts = params.date.split('-');
+    const yyyy = dateParts[0] || '2026';
     const mm = dateParts[1] || '01';
     const dd = dateParts[2] || '01';
-    const yy = (dateParts[0] || '2026').slice(-2);
-    const dateCode = `${mm}${dd}${yy}`;
-    const daySequence = state.appointments.filter(
-      (a) => a.branchId === params.branchId && a.date === params.date
-    ).length + 1;
-    const seqStr = String(daySequence).padStart(3, '0');
-    const appointmentNumber = `SD-${branchCode}.${dateCode}-${seqStr}`;
+    const yy = yyyy.slice(-2);
+    const ddmmyy = `${dd}${mm}${yy}`;
+    const timeCode = (params.bookedTime || '00:00').replace(':', '');
+
+    let appointmentNumber = `SD-${branchInitial}-${ddmmyy}-${timeCode}`;
+    const duplicateCount = state.appointments.filter((a) =>
+      a.appointmentNumber.startsWith(appointmentNumber)
+    ).length;
+    if (duplicateCount > 0) {
+      appointmentNumber = `${appointmentNumber}-${String(duplicateCount + 1).padStart(2, '0')}`;
+    }
 
     const bookedMin = timeToMinutes(params.bookedTime);
     const recommendedArrival = minutesToTime(Math.max(0, bookedMin - state.config.arrivalBeforeAppointmentMinutes));
@@ -408,18 +463,23 @@ export class SchedulingService {
   /**
    * Reception Workflow: Check in / payment received
    */
-  public checkInPaymentReceived(appointmentId: string): { success: boolean; message?: string } {
+  public checkInPaymentReceived(
+    appointmentId: string,
+    paymentMethod: PaymentMethod = 'CASH'
+  ): { success: boolean; message?: string } {
     const state = db.getState();
     const appt = state.appointments.find((a) => a.id === appointmentId);
     if (!appt) return { success: false, message: 'Appointment not found' };
 
     appt.paymentStatus = 'PAID';
+    appt.paymentMethod = paymentMethod;
     appt.status = 'WAITING';
     appt.actualArrivalTime = state.config.simulatedTime;
+    const methodLabel = paymentMethod === 'PHONEPE' ? 'PhonePe / UPI' : 'Cash';
     appt.history.push({
       timestamp: `${state.config.simulatedDate} ${state.config.simulatedTime}`,
       status: 'ARRIVED',
-      note: 'Checked in by reception; consultation fee payment received',
+      note: `Checked in by reception; consultation fee received via ${methodLabel}`,
     });
     appt.updatedAt = new Date().toISOString();
 
@@ -487,6 +547,12 @@ export class SchedulingService {
     });
     appt.updatedAt = new Date().toISOString();
 
+    // Reset parent's consecutive no-shows since they attended
+    const parent = state.parents.find((p) => p.id === appt.parentId || p.mobile === appt.parentMobile);
+    if (parent) {
+      parent.consecutiveNoShows = 0;
+    }
+
     const session = state.sessions.find(
       (s) => s.doctorId === appt.doctorId && s.branchId === appt.branchId && s.date === appt.date
     );
@@ -546,9 +612,17 @@ export class SchedulingService {
   }
 
   /**
-   * No-Show Rule: Releases slot capacity, non-punitive messaging
+   * No-Show Rule: Releases slot capacity, tracks consecutive no-shows,
+   * restricts booking if 3 consecutive no-shows reached, and alerts parent.
    */
-  public markNoShow(appointmentId: string): { success: boolean; message?: string } {
+  public markNoShow(appointmentId: string): {
+    success: boolean;
+    message?: string;
+    isBlocked?: boolean;
+    consecutiveNoShows?: number;
+    parentName?: string;
+    parentMobile?: string;
+  } {
     const state = db.getState();
     const appt = state.appointments.find((a) => a.id === appointmentId);
     if (!appt) return { success: false, message: 'Appointment not found' };
@@ -557,19 +631,110 @@ export class SchedulingService {
     appt.history.push({
       timestamp: `${state.config.simulatedDate} ${state.config.simulatedTime}`,
       status: 'NO_SHOW',
-      note: 'Patient did not arrive within grace threshold; slot released for on-site queue relief',
+      note: 'Patient did not arrive within grace threshold; slot released by reception',
     });
     appt.updatedAt = new Date().toISOString();
 
-    this.sendSimulatedNotification(
-      appt,
-      'Appointment Status Update',
-      'Your original appointment time has passed. If you are still planning to visit today, please come to the hospital. Reception will arrange the next available consultation slot based on availability.'
-    );
+    const parent = state.parents.find((p) => p.id === appt.parentId || p.mobile === appt.parentMobile);
+    let consecutiveCount = 1;
+    let isBlocked = false;
+
+    if (parent) {
+      consecutiveCount = (parent.consecutiveNoShows || 0) + 1;
+      parent.consecutiveNoShows = consecutiveCount;
+
+      if (consecutiveCount >= 3) {
+        parent.isBlocked = true;
+        isBlocked = true;
+        parent.blockedReason = "As you didn't respect your appointment slot, we are temporarily blocking your appointment booking.";
+        parent.blockedAt = `${state.config.simulatedDate} ${state.config.simulatedTime}`;
+
+        this.sendSimulatedNotification(
+          appt,
+          'Online Booking Suspended (3 Consecutive No-Shows)',
+          "As you didn't respect your appointment slot, we are temporarily blocking your appointment booking. Please contact hospital reception to resolve this."
+        );
+      } else {
+        this.sendSimulatedNotification(
+          appt,
+          `Appointment Missed: No-Show (${consecutiveCount}/3)`,
+          `Your appointment slot has passed and was marked as No-Show (${consecutiveCount}/3). Please note that 3 consecutive unattended appointments without cancellation will temporarily restrict your booking privileges.`
+        );
+      }
+    } else {
+      this.sendSimulatedNotification(
+        appt,
+        'Appointment Status Update',
+        'Your appointment slot has passed. If you are still planning to visit today, please come to the hospital. Reception will arrange the next available consultation slot based on availability.'
+      );
+    }
 
     this.recalculateSessionQueue(appt.doctorId, appt.branchId, appt.date);
     db.persistState();
-    return { success: true };
+
+    return {
+      success: true,
+      isBlocked,
+      consecutiveNoShows: consecutiveCount,
+      parentName: parent?.name || appt.parentName,
+      parentMobile: parent?.mobile || appt.parentMobile,
+    };
+  }
+
+  /**
+   * Reception: Re-enable booking privileges when parent calls and provides justification
+   */
+  public unblockPatient(params: {
+    parentId?: string;
+    mobile?: string;
+    justification: string;
+    receptionistName?: string;
+  }): { success: boolean; message?: string; parent?: Parent } {
+    const state = db.getState();
+    const cleanMobile = params.mobile ? params.mobile.trim().replace(/\D/g, '') : '';
+    const parent = state.parents.find(
+      (p) =>
+        (params.parentId && p.id === params.parentId) ||
+        (cleanMobile && p.mobile.replace(/\D/g, '') === cleanMobile)
+    );
+
+    if (!parent) {
+      return { success: false, message: 'Patient / Parent record not found' };
+    }
+
+    if (!params.justification || !params.justification.trim()) {
+      return { success: false, message: 'Justification is required before reinstating booking privileges' };
+    }
+
+    parent.isBlocked = false;
+    parent.consecutiveNoShows = 0;
+    parent.blockedReason = undefined;
+    parent.blockedAt = undefined;
+
+    if (!parent.unblockHistory) {
+      parent.unblockHistory = [];
+    }
+
+    const unblockRecord = {
+      timestamp: `${state.config.simulatedDate} ${state.config.simulatedTime}`,
+      justification: params.justification.trim(),
+      receptionistName: params.receptionistName || 'Hospital Reception',
+    };
+    parent.unblockHistory.push(unblockRecord);
+
+    state.notifications.push({
+      id: `notif-${Date.now()}`,
+      appointmentId: '',
+      parentId: parent.id,
+      title: 'Booking Privileges Restored',
+      message: `Your appointment booking privileges have been re-enabled by hospital reception. Reason recorded: "${params.justification.trim()}". You may now book appointments as normal.`,
+      type: 'GENERAL',
+      timestamp: `${state.config.simulatedDate} ${state.config.simulatedTime}`,
+      read: false,
+    });
+
+    db.persistState();
+    return { success: true, parent };
   }
 
   /**
@@ -598,14 +763,15 @@ export class SchedulingService {
     const doctor = state.doctors.find((d) => d.id === params.doctorId);
     const branch = state.branches.find((b) => b.id === params.branchId);
 
-    const emgBranchCode = params.branchId === 'kakinada' ? 'KAK' : 'PIT';
-    const emgDateParts = state.config.simulatedDate.split('-');
-    const emgDateCode = `${emgDateParts[1] || '01'}${emgDateParts[2] || '01'}${(emgDateParts[0] || '2026').slice(-2)}`;
-    const emgSeq = String(state.appointments.filter((a) => a.date === state.config.simulatedDate && a.isEmergency).length + 1).padStart(3, '0');
+    const emgBranchInitial = params.branchId === 'kakinada' ? 'K' : 'P';
+    const [yyyy, mm, dd] = state.config.simulatedDate.split('-');
+    const yy = (yyyy || '2026').slice(-2);
+    const ddmmyy = `${dd || '01'}${mm || '01'}${yy}`;
+    const timeCode = (state.config.simulatedTime || '00:00').replace(':', '');
 
     const emergencyAppt: Appointment = {
       id: `apt-emg-${Date.now()}`,
-      appointmentNumber: `SD-${emgBranchCode}.EMG.${emgDateCode}-${emgSeq}`,
+      appointmentNumber: `SD-${emgBranchInitial}-${ddmmyy}-${timeCode}-EMG`,
       childId: `c-emg-${Date.now()}`,
       childName: params.childName || 'Emergency Pediatric Patient',
       parentId: 'p-emg',

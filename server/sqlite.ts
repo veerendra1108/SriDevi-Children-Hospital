@@ -45,6 +45,11 @@ export class SqliteManager {
         name TEXT NOT NULL,
         mobile TEXT NOT NULL UNIQUE,
         password_hash TEXT NOT NULL,
+        consecutive_no_shows INTEGER NOT NULL DEFAULT 0,
+        is_blocked INTEGER NOT NULL DEFAULT 0,
+        blocked_reason TEXT,
+        blocked_at TEXT,
+        unblock_history_json TEXT NOT NULL DEFAULT '[]',
         created_at TEXT NOT NULL DEFAULT (datetime('now'))
       );
 
@@ -120,6 +125,7 @@ export class SqliteManager {
         recommended_arrival_time TEXT NOT NULL,
         status TEXT NOT NULL,
         payment_status TEXT NOT NULL,
+        payment_method TEXT,
         booking_source TEXT NOT NULL,
         advance_notice_preference_minutes INTEGER NOT NULL DEFAULT 30,
         is_emergency INTEGER NOT NULL DEFAULT 0,
@@ -198,7 +204,33 @@ export class SqliteManager {
         timestamp TEXT NOT NULL,
         read INTEGER NOT NULL DEFAULT 0
       );
+
+      CREATE TABLE IF NOT EXISTS vaccination_programs (
+        id TEXT PRIMARY KEY,
+        child_id TEXT NOT NULL,
+        parent_id TEXT NOT NULL,
+        data_json TEXT NOT NULL
+      );
+
+      CREATE TABLE IF NOT EXISTS vaccine_reminder_logs (
+        id TEXT PRIMARY KEY,
+        program_id TEXT NOT NULL,
+        data_json TEXT NOT NULL
+      );
     `);
+
+    // Safe column migrations for existing databases
+    const ensureColumn = (table: string, col: string, def: string) => {
+      try {
+        this.db.exec(`ALTER TABLE ${table} ADD COLUMN ${col} ${def};`);
+      } catch {}
+    };
+    ensureColumn('parents', 'consecutive_no_shows', 'INTEGER NOT NULL DEFAULT 0');
+    ensureColumn('parents', 'is_blocked', 'INTEGER NOT NULL DEFAULT 0');
+    ensureColumn('parents', 'blocked_reason', 'TEXT');
+    ensureColumn('parents', 'blocked_at', 'TEXT');
+    ensureColumn('parents', 'unblock_history_json', "TEXT NOT NULL DEFAULT '[]'");
+    ensureColumn('appointments', 'payment_method', 'TEXT');
   }
 
   public isDatabaseEmpty(): boolean {
@@ -210,6 +242,8 @@ export class SqliteManager {
     const tx = this.db.transaction(() => {
       // Clear existing
       this.db.exec(`
+        DELETE FROM vaccine_reminder_logs;
+        DELETE FROM vaccination_programs;
         DELETE FROM notifications;
         DELETE FROM appointments;
         DELETE FROM doctor_sessions;
@@ -226,8 +260,8 @@ export class SqliteManager {
 
       // Parents & Children
       const insertParent = this.db.prepare(`
-        INSERT INTO parents (id, name, mobile, password_hash)
-        VALUES (@id, @name, @mobile, @password_hash)
+        INSERT INTO parents (id, name, mobile, password_hash, consecutive_no_shows, is_blocked, blocked_reason, blocked_at, unblock_history_json)
+        VALUES (@id, @name, @mobile, @password_hash, @consecutiveNoShows, @isBlocked, @blockedReason, @blockedAt, @unblockHistoryJson)
       `);
       const insertChild = this.db.prepare(`
         INSERT INTO children (id, parent_id, name, gender, age_years)
@@ -240,6 +274,11 @@ export class SqliteManager {
           name: p.name,
           mobile: p.mobile,
           password_hash: seed.parentPasswords[p.mobile] || 'Test@123',
+          consecutiveNoShows: p.consecutiveNoShows || 0,
+          isBlocked: p.isBlocked ? 1 : 0,
+          blockedReason: p.blockedReason || null,
+          blockedAt: p.blockedAt || null,
+          unblockHistoryJson: JSON.stringify(p.unblockHistory || []),
         });
         if (p.children && p.children.length > 0) {
           for (const c of p.children) {
@@ -320,7 +359,7 @@ export class SqliteManager {
         INSERT INTO appointments (
           id, appointment_number, child_id, child_name, parent_id, parent_name, parent_mobile,
           doctor_id, doctor_name, branch_id, branch_name, date, booked_time,
-          expected_consultation_time, recommended_arrival_time, status, payment_status,
+          expected_consultation_time, recommended_arrival_time, status, payment_status, payment_method,
           booking_source, advance_notice_preference_minutes, is_emergency, emergency_reason,
           actual_arrival_time, consultation_start_time, consultation_end_time,
           consultation_duration_minutes, delay_explanation, rescheduled_from_appointment_id,
@@ -328,7 +367,7 @@ export class SqliteManager {
         ) VALUES (
           @id, @appointmentNumber, @childId, @childName, @parentId, @parentName, @parentMobile,
           @doctorId, @doctorName, @branchId, @branchName, @date, @bookedTime,
-          @expectedConsultationTime, @recommendedArrivalTime, @status, @paymentStatus,
+          @expectedConsultationTime, @recommendedArrivalTime, @status, @paymentStatus, @paymentMethod,
           @bookingSource, @advanceNoticePreferenceMinutes, @isEmergency, @emergencyReason,
           @actualArrivalTime, @consultationStartTime, @consultationEndTime,
           @consultationDurationMinutes, @delayExplanation, @rescheduledFromAppointmentId,
@@ -354,6 +393,7 @@ export class SqliteManager {
           recommendedArrivalTime: a.recommendedArrivalTime,
           status: a.status,
           paymentStatus: a.paymentStatus,
+          paymentMethod: a.paymentMethod || null,
           bookingSource: a.bookingSource,
           advanceNoticePreferenceMinutes: a.advanceNoticePreferenceMinutes || 30,
           isEmergency: a.isEmergency ? 1 : 0,
@@ -464,6 +504,37 @@ export class SqliteManager {
           read: n.read ? 1 : 0,
         });
       }
+
+      // Vaccination Programs
+      if (seed.vaccinationPrograms) {
+        const insertProg = this.db.prepare(`
+          INSERT INTO vaccination_programs (id, child_id, parent_id, data_json)
+          VALUES (@id, @childId, @parentId, @dataJson)
+        `);
+        for (const prog of seed.vaccinationPrograms) {
+          insertProg.run({
+            id: prog.id,
+            childId: prog.childId,
+            parentId: prog.parentId,
+            dataJson: JSON.stringify(prog),
+          });
+        }
+      }
+
+      // Vaccine Reminder Logs
+      if (seed.vaccineReminderLogs) {
+        const insertLog = this.db.prepare(`
+          INSERT INTO vaccine_reminder_logs (id, program_id, data_json)
+          VALUES (@id, @programId, @dataJson)
+        `);
+        for (const log of seed.vaccineReminderLogs) {
+          insertLog.run({
+            id: log.id,
+            programId: log.programId,
+            dataJson: JSON.stringify(log),
+          });
+        }
+      }
     });
 
     tx();
@@ -490,11 +561,21 @@ export class SqliteManager {
 
     const parents: Parent[] = parentRows.map((p) => {
       parentPasswords[p.mobile] = p.password_hash;
+      let unblockHistory = [];
+      try {
+        unblockHistory = p.unblock_history_json ? JSON.parse(p.unblock_history_json) : [];
+      } catch {}
+
       return {
         id: p.id,
         name: p.name,
         mobile: p.mobile,
         children: childrenByParent.get(p.id) || [],
+        consecutiveNoShows: Number(p.consecutive_no_shows || 0),
+        isBlocked: Boolean(p.is_blocked),
+        blockedReason: p.blocked_reason || undefined,
+        blockedAt: p.blocked_at || undefined,
+        unblockHistory,
       };
     });
 
@@ -571,6 +652,7 @@ export class SqliteManager {
       recommendedArrivalTime: a.recommended_arrival_time,
       status: a.status,
       paymentStatus: a.payment_status,
+      paymentMethod: a.payment_method || undefined,
       bookingSource: a.booking_source,
       advanceNoticePreferenceMinutes: a.advance_notice_preference_minutes,
       isEmergency: a.is_emergency === 1,
@@ -671,6 +753,24 @@ export class SqliteManager {
       read: n.read === 1,
     }));
 
+    // Vaccination Programs
+    let vaccinationPrograms: any[] = [];
+    try {
+      const progRows = this.db.prepare('SELECT data_json FROM vaccination_programs').all() as any[];
+      vaccinationPrograms = progRows.map((r) => JSON.parse(r.data_json));
+    } catch {
+      vaccinationPrograms = [];
+    }
+
+    // Vaccine Reminder Logs
+    let vaccineReminderLogs: any[] = [];
+    try {
+      const logRows = this.db.prepare('SELECT data_json FROM vaccine_reminder_logs').all() as any[];
+      vaccineReminderLogs = logRows.map((r) => JSON.parse(r.data_json));
+    } catch {
+      vaccineReminderLogs = [];
+    }
+
     return {
       parents,
       parentPasswords,
@@ -684,6 +784,8 @@ export class SqliteManager {
       gallery,
       reviews,
       notifications,
+      vaccinationPrograms,
+      vaccineReminderLogs,
     };
   }
 
@@ -732,7 +834,7 @@ export class SqliteManager {
       INSERT INTO appointments (
         id, appointment_number, child_id, child_name, parent_id, parent_name, parent_mobile,
         doctor_id, doctor_name, branch_id, branch_name, date, booked_time,
-        expected_consultation_time, recommended_arrival_time, status, payment_status,
+        expected_consultation_time, recommended_arrival_time, status, payment_status, payment_method,
         booking_source, advance_notice_preference_minutes, is_emergency, emergency_reason,
         actual_arrival_time, consultation_start_time, consultation_end_time,
         consultation_duration_minutes, delay_explanation, rescheduled_from_appointment_id,
@@ -740,7 +842,7 @@ export class SqliteManager {
       ) VALUES (
         @id, @appointmentNumber, @childId, @childName, @parentId, @parentName, @parentMobile,
         @doctorId, @doctorName, @branchId, @branchName, @date, @bookedTime,
-        @expectedConsultationTime, @recommendedArrivalTime, @status, @paymentStatus,
+        @expectedConsultationTime, @recommendedArrivalTime, @status, @paymentStatus, @paymentMethod,
         @bookingSource, @advanceNoticePreferenceMinutes, @isEmergency, @emergencyReason,
         @actualArrivalTime, @consultationStartTime, @consultationEndTime,
         @consultationDurationMinutes, @delayExplanation, @rescheduledFromAppointmentId,
@@ -751,6 +853,7 @@ export class SqliteManager {
         recommended_arrival_time = excluded.recommended_arrival_time,
         status = excluded.status,
         payment_status = excluded.payment_status,
+        payment_method = excluded.payment_method,
         is_emergency = excluded.is_emergency,
         emergency_reason = excluded.emergency_reason,
         actual_arrival_time = excluded.actual_arrival_time,
@@ -781,6 +884,7 @@ export class SqliteManager {
       recommendedArrivalTime: a.recommendedArrivalTime,
       status: a.status,
       paymentStatus: a.paymentStatus,
+      paymentMethod: a.paymentMethod || null,
       bookingSource: a.bookingSource,
       advanceNoticePreferenceMinutes: a.advanceNoticePreferenceMinutes || 30,
       isEmergency: a.isEmergency ? 1 : 0,

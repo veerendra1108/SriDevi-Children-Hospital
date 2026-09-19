@@ -9,8 +9,12 @@ import {
   GalleryItem,
   HospitalReview,
   NotificationItem,
+  VaccinationDose,
+  ChildVaccinationProgram,
+  VaccineCallReminderLog,
 } from '../src/types/index.js';
 import { SqliteManager } from './sqlite.js';
+import { IAP_2018_SCHEDULE_MASTER, addDays } from './vaccineScheduleData.js';
 
 export interface DatabaseState {
   parents: Parent[];
@@ -30,6 +34,15 @@ export interface DatabaseState {
   gallery: GalleryItem[];
   reviews: HospitalReview[];
   notifications: NotificationItem[];
+  vaccinationPrograms: ChildVaccinationProgram[];
+  vaccineReminderLogs: VaccineCallReminderLog[];
+}
+
+export function getLocalDateString(d: Date = new Date()): string {
+  const year = d.getFullYear();
+  const month = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
 }
 
 export function getInitialSeedData(): DatabaseState {
@@ -81,6 +94,8 @@ export function getInitialSeedData(): DatabaseState {
       id: 'p6',
       name: 'Mahesh',
       mobile: '9000000006',
+      consecutiveNoShows: 2,
+      isBlocked: false,
       children: [
         { id: 'c6-1', parentId: 'p6', name: 'Arjun', gender: 'Boy' },
       ],
@@ -160,7 +175,7 @@ export function getInitialSeedData(): DatabaseState {
       summary: 'Doctor profile information will be updated. Dr. Subba Rao Vadarevu has been caring for infants, children, and adolescents with unmatched clinical attentiveness and generational trust across Godavari districts.',
       branches: ['kakinada', 'pithapuram'],
       active: true,
-      scheduleDescription: 'Operates on selected configured consulting days. Please refer to live schedule.',
+      scheduleDescription: 'Daily consultation sessions from 10:00 AM to 07:00 PM across hospital branches.',
     },
     {
       id: 'dr-prashant',
@@ -172,7 +187,7 @@ export function getInitialSeedData(): DatabaseState {
       summary: 'Doctor profile information will be updated. Specializing in pediatric development, immunization tracking, and acute childhood illnesses with calm, parent-friendly guidance.',
       branches: ['kakinada', 'pithapuram'],
       active: true,
-      scheduleDescription: 'Regular morning and evening consultation sessions across Kakinada and Pithapuram.',
+      scheduleDescription: 'Daily consultation sessions from 10:00 AM to 07:00 PM across hospital branches.',
     },
   ];
 
@@ -184,7 +199,7 @@ export function getInitialSeedData(): DatabaseState {
       landmark: 'Near Government General Hospital / Medical College Junction',
       phone: '+91 884 237 8899',
       emergencyPhone: '+91 944 011 2233',
-      timings: 'Mon - Sat: 09:30 AM - 01:30 PM & 05:00 PM - 08:30 PM (Emergency open)',
+      timings: 'Daily: 10:00 AM - 07:00 PM (Emergency 24/7)',
       googleMapsUrl: 'https://maps.google.com/?q=Sri+Devi+Children+Hospital+Kakinada',
     },
     {
@@ -194,7 +209,7 @@ export function getInitialSeedData(): DatabaseState {
       landmark: 'Near RTC Bus Complex & Temple Arch Road',
       phone: '+91 8869 252 777',
       emergencyPhone: '+91 944 011 2244',
-      timings: 'Mon, Wed, Fri: 10:00 AM - 02:00 PM (Emergency open)',
+      timings: 'Daily: 10:00 AM - 07:00 PM (Emergency open)',
       googleMapsUrl: 'https://maps.google.com/?q=Sri+Devi+Children+Hospital+Pithapuram',
     },
   ];
@@ -204,56 +219,62 @@ export function getInitialSeedData(): DatabaseState {
       id: 'sch-1',
       doctorId: 'dr-subba-rao',
       branchId: 'kakinada',
-      daysOfWeek: [1, 2, 3, 4, 5, 6], // Mon-Sat
+      daysOfWeek: [0, 1, 2, 3, 4, 5, 6], // Daily (Sun-Sat)
       startTime: '10:00',
-      endTime: '13:30',
+      endTime: '19:00',
       slotDurationMinutes: 15,
       bufferMinutesPerHour: 10,
       isAvailable: true,
-      notes: 'Main consulting session in Kakinada',
+      notes: 'Daily consultation session in Kakinada',
     },
     {
       id: 'sch-2',
       doctorId: 'dr-subba-rao',
       branchId: 'pithapuram',
-      daysOfWeek: [2, 4], // Tue, Thu
-      startTime: '14:30',
-      endTime: '17:30',
+      daysOfWeek: [0, 1, 2, 3, 4, 5, 6], // Daily (Sun-Sat)
+      startTime: '10:00',
+      endTime: '19:00',
       slotDurationMinutes: 15,
       bufferMinutesPerHour: 10,
       isAvailable: true,
-      notes: 'Special Pithapuram clinic session',
+      notes: 'Daily consultation session in Pithapuram',
     },
     {
       id: 'sch-3',
       doctorId: 'dr-prashant',
       branchId: 'kakinada',
-      daysOfWeek: [1, 2, 3, 4, 5, 6],
-      startTime: '09:30',
-      endTime: '13:00',
+      daysOfWeek: [0, 1, 2, 3, 4, 5, 6], // Daily (Sun-Sat)
+      startTime: '10:00',
+      endTime: '19:00',
       slotDurationMinutes: 15,
       bufferMinutesPerHour: 10,
       isAvailable: true,
-      notes: 'Morning session',
+      notes: 'Daily consultation session in Kakinada',
     },
     {
       id: 'sch-4',
       doctorId: 'dr-prashant',
       branchId: 'pithapuram',
-      daysOfWeek: [1, 3, 5], // Mon, Wed, Fri
+      daysOfWeek: [0, 1, 2, 3, 4, 5, 6], // Daily (Sun-Sat)
       startTime: '10:00',
-      endTime: '13:30',
+      endTime: '19:00',
       slotDurationMinutes: 15,
       bufferMinutesPerHour: 10,
       isAvailable: true,
-      notes: 'Pithapuram pediatric clinic',
+      notes: 'Daily consultation session in Pithapuram',
     },
   ];
 
-  // Today's date ISO format
-  const today = new Date().toISOString().split('T')[0];
+  // Today's date in local YYYY-MM-DD
+  const today = getLocalDateString();
   const [yyyy, mm, dd] = today.split('-');
-  const dateCode = `${mm}${dd}${yyyy.slice(-2)}`;
+  const ddmmyy = `${dd}${mm}${yyyy.slice(-2)}`;
+
+  const tomorrowObj = new Date();
+  tomorrowObj.setDate(tomorrowObj.getDate() + 1);
+  const tomorrow = getLocalDateString(tomorrowObj);
+  const [tY, tM, tD] = tomorrow.split('-');
+  const tmrwDdmmyy = `${tD}${tM}${tY.slice(-2)}`;
 
   const config: SystemConfiguration = {
     slotDurationMinutes: 15,
@@ -286,8 +307,8 @@ export function getInitialSeedData(): DatabaseState {
       doctorId: 'dr-prashant',
       branchId: 'kakinada',
       date: today,
-      scheduledStart: '09:30',
-      actualStart: '09:30',
+      scheduledStart: '10:00',
+      actualStart: '10:00',
       status: 'IN_SESSION',
       currentAppointmentId: undefined,
       currentDelayMinutes: 0,
@@ -301,7 +322,7 @@ export function getInitialSeedData(): DatabaseState {
     // Scenario 1: Patient 1 (Aarav, Ravi Kumar) - 10:00 AM. Arrived early (09:45 AM). Completed consultation!
     {
       id: 'apt-1',
-      appointmentNumber: `SD-KAK.${dateCode}-001`,
+      appointmentNumber: `SD-K-${ddmmyy}-1000`,
       childId: 'c1-1',
       childName: 'Aarav Kumar',
       parentId: 'p1',
@@ -336,7 +357,7 @@ export function getInitialSeedData(): DatabaseState {
     // Scenario 2: Patient 2 (Vihaan, Suresh Babu) - 10:15 AM. Arrived 10 mins late (10:25), currently WITH DOCTOR!
     {
       id: 'apt-2',
-      appointmentNumber: `SD-KAK.${dateCode}-002`,
+      appointmentNumber: `SD-K-${ddmmyy}-1015`,
       childId: 'c2-1',
       childName: 'Vihaan Babu',
       parentId: 'p2',
@@ -368,7 +389,7 @@ export function getInitialSeedData(): DatabaseState {
     // Scenario 3: Patient 3 (Ananya, Lakshmi Devi) - 10:30 AM. Arrived on time, checked in & WAITING! Next patient in line.
     {
       id: 'apt-3',
-      appointmentNumber: `SD-KAK.${dateCode}-003`,
+      appointmentNumber: `SD-K-${ddmmyy}-1030`,
       childId: 'c3-1',
       childName: 'Ananya Devi',
       parentId: 'p3',
@@ -400,7 +421,7 @@ export function getInitialSeedData(): DatabaseState {
     // Scenario 4: Patient 4 (Ishaan, Rajesh Kumar) - 10:45 AM. Not checked in yet, approaching slot time.
     {
       id: 'apt-4',
-      appointmentNumber: `SD-KAK.${dateCode}-004`,
+      appointmentNumber: `SD-K-${ddmmyy}-1045`,
       childId: 'c4-1',
       childName: 'Ishaan Kumar',
       parentId: 'p4',
@@ -431,7 +452,7 @@ export function getInitialSeedData(): DatabaseState {
     // Scenario 5: Patient 5 (Myra, Priya Rao) - 11:00 AM. Booked, tracking queue from home!
     {
       id: 'apt-5',
-      appointmentNumber: `SD-KAK.${dateCode}-005`,
+      appointmentNumber: `SD-K-${ddmmyy}-1100`,
       childId: 'c5-1',
       childName: 'Myra Rao',
       parentId: 'p5',
@@ -462,7 +483,7 @@ export function getInitialSeedData(): DatabaseState {
     // Scenario 6: Patient 6 (Arjun, Mahesh) - 11:15 AM. Booked via Telephone by receptionist.
     {
       id: 'apt-6',
-      appointmentNumber: `SD-KAK.${dateCode}-006`,
+      appointmentNumber: `SD-K-${ddmmyy}-1115`,
       childId: 'c6-1',
       childName: 'Arjun',
       parentId: 'p6',
@@ -492,7 +513,7 @@ export function getInitialSeedData(): DatabaseState {
     // Scenario 7: Patient 7 (Kavya, Sravani) - 11:30 AM.
     {
       id: 'apt-7',
-      appointmentNumber: `SD-KAK.${dateCode}-007`,
+      appointmentNumber: `SD-K-${ddmmyy}-1130`,
       childId: 'c7-1',
       childName: 'Kavya',
       parentId: 'p7',
@@ -522,7 +543,7 @@ export function getInitialSeedData(): DatabaseState {
     // Scenario 8: Patient 8 (Sai, Venkatesh) - 11:45 AM.
     {
       id: 'apt-8',
-      appointmentNumber: `SD-KAK.${dateCode}-008`,
+      appointmentNumber: `SD-K-${ddmmyy}-1145`,
       childId: 'c8-1',
       childName: 'Sai',
       parentId: 'p8',
@@ -552,7 +573,7 @@ export function getInitialSeedData(): DatabaseState {
     // Scenario 9: Patient 9 (Tara, Deepika) - 12:00 PM. Booked, reschedule cutoff >60 mins away!
     {
       id: 'apt-9',
-      appointmentNumber: `SD-KAK.${dateCode}-009`,
+      appointmentNumber: `SD-K-${ddmmyy}-1200`,
       childId: 'c9-1',
       childName: 'Tara',
       parentId: 'p9',
@@ -582,7 +603,7 @@ export function getInitialSeedData(): DatabaseState {
     // Scenario 10: Patient 10 (Akhil, Praveen) - 12:15 PM.
     {
       id: 'apt-10',
-      appointmentNumber: `SD-KAK.${dateCode}-010`,
+      appointmentNumber: `SD-K-${ddmmyy}-1215`,
       childId: 'c10-1',
       childName: 'Akhil',
       parentId: 'p10',
@@ -607,6 +628,34 @@ export function getInitialSeedData(): DatabaseState {
       ],
       createdAt: `${today} 09:30:00`,
       updatedAt: `${today} 10:15:00`,
+    },
+
+    // Scenario 11: Tomorrow's appointment for Ravi Kumar (9000000001) to test future date tracking
+    {
+      id: 'apt-11',
+      appointmentNumber: `SD-K-${tmrwDdmmyy}-1115`,
+      childId: 'c1-2',
+      childName: 'Diya Kumar',
+      parentId: 'p1',
+      parentName: 'Ravi Kumar',
+      parentMobile: '9000000001',
+      doctorId: 'dr-subba-rao',
+      doctorName: 'Dr. Subba Rao Vadarevu',
+      branchId: 'kakinada',
+      branchName: 'Sri Devi Children Hospital - Kakinada',
+      date: tomorrow,
+      bookedTime: '11:15',
+      expectedConsultationTime: '11:15',
+      recommendedArrivalTime: '11:00',
+      status: 'BOOKED',
+      paymentStatus: 'PAID',
+      bookingSource: 'ONLINE',
+      advanceNoticePreferenceMinutes: 30,
+      history: [
+        { timestamp: `${today} 09:40`, status: 'BOOKED', note: 'Booked online for tomorrow' },
+      ],
+      createdAt: `${today} 09:40:00`,
+      updatedAt: `${today} 09:40:00`,
     },
   ];
 
@@ -723,6 +772,131 @@ export function getInitialSeedData(): DatabaseState {
     },
   ];
 
+  // Helper to construct seed vaccination programs
+  const buildSeedProgram = (
+    childId: string,
+    childName: string,
+    childGender: 'Boy' | 'Girl',
+    parentId: string,
+    parentName: string,
+    parentMobile: string,
+    birthOffsetDaysAgo: number,
+    completedMilestoneIds: string[]
+  ): ChildVaccinationProgram => {
+    const baselineBirthDate = addDays(today, -birthOffsetDaysAgo);
+
+    const doses: VaccinationDose[] = IAP_2018_SCHEDULE_MASTER.map((m) => {
+      const dueDate = addDays(baselineBirthDate, m.offsetDays);
+      const isGiven = completedMilestoneIds.includes(m.id);
+      const isPast = dueDate < today;
+      const diffFromToday = Math.round(
+        (new Date(dueDate).getTime() - new Date(today).getTime()) / (1000 * 60 * 60 * 24)
+      );
+      const isDueSoon = !isPast && !isGiven && diffFromToday <= 15;
+
+      return {
+        id: `dose-${childId}-${m.id}`,
+        milestoneId: m.id,
+        ageLabel: m.ageLabel,
+        vaccines: [...m.vaccines],
+        dueDate,
+        status: isGiven ? 'GIVEN' : isPast ? 'OVERDUE' : isDueSoon ? 'DUE_SOON' : 'PENDING',
+        givenDate: isGiven ? dueDate : undefined,
+        administeredBy: isGiven ? 'Dr. Subba Rao Vadarevu' : undefined,
+        batchNumber: isGiven ? `SRI-VAC-${m.offsetDays || '00'}` : undefined,
+        notes: isGiven ? 'Administered on schedule at Sri Devi Children Hospital.' : undefined,
+        weightKg: isGiven ? (m.offsetDays === 0 ? 3.1 : m.offsetDays === 42 ? 4.5 : 5.8) : undefined,
+        heightCm: isGiven ? (m.offsetDays === 0 ? 50 : m.offsetDays === 42 ? 55 : 61) : undefined,
+      };
+    });
+
+    return {
+      id: `vac-prog-${childId}`,
+      childId,
+      childName,
+      childGender,
+      parentId,
+      parentName,
+      parentMobile,
+      registeredDate: baselineBirthDate,
+      firstVaccineDate: baselineBirthDate,
+      firstMilestoneId: 'birth',
+      baselineBirthDate,
+      registrationFeePaid: true,
+      registrationAmount: 500,
+      registeredByBranchId: 'kakinada',
+      doses,
+      createdAt: `${baselineBirthDate} 10:00:00`,
+      updatedAt: `${today} 10:00:00`,
+    };
+  };
+
+  const vaccinationPrograms: ChildVaccinationProgram[] = [
+    // 1. Aarav Kumar: 10 weeks dose due in 5 days!
+    buildSeedProgram(
+      'c1-1',
+      'Aarav Kumar',
+      'Boy',
+      'p1',
+      'Ravi Kumar',
+      '9000000001',
+      65, // birth was 65 days ago, so 10w (+70d) is due in 5 days!
+      ['birth', '6-weeks']
+    ),
+    // 2. Vihaan Babu: 14 weeks dose due in 11 days!
+    buildSeedProgram(
+      'c2-1',
+      'Vihaan Babu',
+      'Boy',
+      'p2',
+      'Suresh Babu',
+      '9000000002',
+      87, // birth was 87 days ago, so 14w (+98d) is due in 11 days!
+      ['birth', '6-weeks', '10-weeks']
+    ),
+    // 3. Diya Kumar: 6 weeks dose due in 2 days!
+    buildSeedProgram(
+      'c1-2',
+      'Diya Kumar',
+      'Girl',
+      'p1',
+      'Ravi Kumar',
+      '9000000001',
+      40, // birth was 40 days ago, so 6w (+42d) is due in 2 days!
+      ['birth']
+    ),
+    // 4. Ananya Devi: 6 months dose (Typhoid & Influenza) due in 8 days!
+    buildSeedProgram(
+      'c3-1',
+      'Ananya Devi',
+      'Girl',
+      'p3',
+      'Lakshmi Devi',
+      '9000000003',
+      172, // birth was 172 days ago, so 6m (+180d) is due in 8 days!
+      ['birth', '6-weeks', '10-weeks', '14-weeks']
+    ),
+  ];
+
+  const vaccineReminderLogs: VaccineCallReminderLog[] = [
+    {
+      id: 'call-log-1',
+      programId: 'vac-prog-c1-1',
+      childId: 'c1-1',
+      childName: 'Aarav Kumar',
+      parentId: 'p1',
+      parentName: 'Ravi Kumar',
+      parentMobile: '9000000001',
+      milestoneId: '10-weeks',
+      milestoneLabel: '10 Weeks',
+      dueDate: addDays(today, 5),
+      calledAt: `${today} 09:30`,
+      receptionistName: 'Sujatha (Reception Desk)',
+      callOutcome: 'CONFIRMED',
+      notes: 'Called father Ravi Kumar. Confirmed bringing Aarav this Saturday morning at 10:30 AM for 10-week pentavalent dose.',
+    },
+  ];
+
   return {
     parents,
     parentPasswords,
@@ -736,6 +910,8 @@ export function getInitialSeedData(): DatabaseState {
     gallery,
     reviews,
     notifications,
+    vaccinationPrograms,
+    vaccineReminderLogs,
   };
 }
 
@@ -752,6 +928,56 @@ class Database {
         this.sqlite.seedAll(this.state);
       } else {
         this.state = this.sqlite.loadState();
+        const currentLocalDate = getLocalDateString();
+        // If persisted simulatedDate is in the past, roll it forward to today
+        if (this.state.config && this.state.config.simulatedDate < currentLocalDate) {
+          console.log(`[Database] Rolling forward past simulatedDate (${this.state.config.simulatedDate}) to current date (${currentLocalDate})`);
+          this.state.config.simulatedDate = currentLocalDate;
+          // Ensure doctor sessions exist for today
+          const defaultDoctors = ['dr-subba-rao', 'dr-prashant'];
+          for (const docId of defaultDoctors) {
+            const hasSession = this.state.sessions.some((s) => s.doctorId === docId && s.branchId === 'kakinada' && s.date === currentLocalDate);
+            if (!hasSession) {
+              this.state.sessions.push({
+                doctorId: docId,
+                branchId: 'kakinada',
+                date: currentLocalDate,
+                scheduledStart: '10:00',
+                actualStart: '10:00',
+                status: 'IN_SESSION',
+                currentDelayMinutes: 0,
+                avgConsultationDurationMinutes: 15,
+                bufferAvailableMinutes: 20,
+                emergencyAdjustmentCount: 0,
+              });
+            }
+          }
+          this.persistState();
+        }
+        if (!this.state.vaccinationPrograms || this.state.vaccinationPrograms.length === 0) {
+          const freshSeed = getInitialSeedData();
+          this.state.vaccinationPrograms = freshSeed.vaccinationPrograms;
+          this.state.vaccineReminderLogs = freshSeed.vaccineReminderLogs;
+          this.persistState();
+        }
+
+        // Ensure both doctors have daily schedules from 10:00 to 19:00 across branches
+        const freshSeed = getInitialSeedData();
+        const hasOutdatedSchedules = !this.state.schedules || this.state.schedules.length === 0 || this.state.schedules.some(
+          (s) => s.startTime !== '10:00' || s.endTime !== '19:00' || !s.daysOfWeek || s.daysOfWeek.length !== 7
+        );
+        if (hasOutdatedSchedules) {
+          console.log('[Database] Synchronizing doctor schedules to daily 10:00 AM - 07:00 PM...');
+          this.state.schedules = freshSeed.schedules;
+          this.state.doctors = freshSeed.doctors;
+          this.state.branches = freshSeed.branches;
+          if (this.state.sessions) {
+            this.state.sessions.forEach((sess) => {
+              sess.scheduledStart = '10:00';
+            });
+          }
+          this.persistState();
+        }
       }
     } catch (err) {
       console.warn('SQLite init warning, falling back to memory seed:', err);

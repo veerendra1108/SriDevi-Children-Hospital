@@ -37,6 +37,10 @@ export const AnalyticsModal: React.FC<AnalyticsModalProps> = ({ isOpen, onClose 
     : 70;
   const phonePct = 100 - onlinePct;
 
+  const totalPaid = analytics ? (analytics.cashPayments || 0) + (analytics.phonePePayments || 0) : 0;
+  const cashPct = totalPaid > 0 ? Math.round(((analytics?.cashPayments || 0) / totalPaid) * 100) : 0;
+  const phonePePct = totalPaid > 0 ? 100 - cashPct : 0;
+
   return (
     <div className="fixed inset-0 z-50 bg-slate-950/70 backdrop-blur-xs flex items-center justify-center p-4 overflow-y-auto">
       <div className="bg-white rounded-3xl max-w-3xl w-full p-6 sm:p-8 space-y-6 shadow-2xl relative my-8 animate-in zoom-in-95">
@@ -141,6 +145,90 @@ export const AnalyticsModal: React.FC<AnalyticsModalProps> = ({ isOpen, onClose 
                   {analytics.appointmentsTreatedEarlierThanBooked} treated earlier than booked time.
                 </p>
               </div>
+            </div>
+
+            {/* Reception Payment Collections: Cash vs. PhonePe */}
+            <div className="p-5 rounded-2xl bg-gradient-to-br from-slate-50 via-purple-50/25 to-emerald-50/25 border border-slate-200 text-xs space-y-4">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-1">
+                <div>
+                  <div className="flex items-center gap-2">
+                    <span className="font-extrabold text-slate-900 text-sm">
+                      Reception Payment Mode Collections
+                    </span>
+                    <span className="text-[10px] px-2 py-0.5 rounded-full bg-teal-100 text-teal-800 font-bold">
+                      Reception Audit
+                    </span>
+                  </div>
+                  <span className="text-[11px] text-slate-500">
+                    Live tally of payments recorded manually by reception during patient check-in
+                  </span>
+                </div>
+                <div className="text-left sm:text-right">
+                  <span className="text-[10px] text-slate-500 uppercase tracking-wider block font-semibold">Total Paid Check-Ins</span>
+                  <span className="font-mono font-extrabold text-slate-900 text-base">{totalPaid}</span>
+                </div>
+              </div>
+
+              {/* Cash and PhonePe Cards */}
+              <div className="grid grid-cols-2 gap-3">
+                <div className="p-4 rounded-2xl bg-purple-50/90 border border-purple-200 flex items-center gap-3.5 shadow-2xs">
+                  <div className="w-11 h-11 rounded-2xl bg-purple-600 text-white flex items-center justify-center text-xl font-bold shadow-xs shrink-0">
+                    📱
+                  </div>
+                  <div>
+                    <span className="text-[11px] font-bold text-purple-900 block">PhonePe / UPI</span>
+                    <div className="text-2xl font-black text-purple-950 font-mono">
+                      {analytics.phonePePayments ?? 0}
+                    </div>
+                    <span className="text-[10px] text-purple-700 font-medium">
+                      {totalPaid > 0 ? `${phonePePct}% of collections` : 'Digital payments'}
+                    </span>
+                  </div>
+                </div>
+
+                <div className="p-4 rounded-2xl bg-emerald-50/90 border border-emerald-200 flex items-center gap-3.5 shadow-2xs">
+                  <div className="w-11 h-11 rounded-2xl bg-emerald-600 text-white flex items-center justify-center text-xl font-bold shadow-xs shrink-0">
+                    💵
+                  </div>
+                  <div>
+                    <span className="text-[11px] font-bold text-emerald-900 block">Cash Payments</span>
+                    <div className="text-2xl font-black text-emerald-950 font-mono">
+                      {analytics.cashPayments ?? 0}
+                    </div>
+                    <span className="text-[10px] text-emerald-700 font-medium">
+                      {totalPaid > 0 ? `${cashPct}% of collections` : 'Counter physical cash'}
+                    </span>
+                  </div>
+                </div>
+              </div>
+
+              {/* Comparative Distribution Bar */}
+              {totalPaid > 0 ? (
+                <div className="space-y-1.5 pt-1">
+                  <div className="flex h-5 rounded-full overflow-hidden bg-slate-200 shadow-inner">
+                    <div
+                      style={{ width: `${phonePePct}%` }}
+                      className="bg-purple-600 flex items-center justify-center text-[10px] text-white font-bold transition-all duration-500"
+                    >
+                      {phonePePct > 15 ? `${phonePePct}% PhonePe` : `${phonePePct}%`}
+                    </div>
+                    <div
+                      style={{ width: `${cashPct}%` }}
+                      className="bg-emerald-600 flex items-center justify-center text-[10px] text-white font-bold transition-all duration-500"
+                    >
+                      {cashPct > 15 ? `${cashPct}% Cash` : `${cashPct}%`}
+                    </div>
+                  </div>
+                  <div className="flex justify-between text-[11px] text-slate-600 font-medium px-1">
+                    <span className="text-purple-800 font-semibold">📱 PhonePe: {analytics.phonePePayments} patients</span>
+                    <span className="text-emerald-800 font-semibold">💵 Cash: {analytics.cashPayments} patients</span>
+                  </div>
+                </div>
+              ) : (
+                <div className="text-center py-2 text-slate-400 text-[11px]">
+                  No checked-in consultation fee payments recorded yet for current session.
+                </div>
+              )}
             </div>
 
             {/* Booking Channel Distribution */}

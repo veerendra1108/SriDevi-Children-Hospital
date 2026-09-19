@@ -2,6 +2,8 @@ import { Router } from 'express';
 import { db } from './db.js';
 import { schedulingService, timeToMinutes, minutesToTime } from './schedulingService.js';
 import { BranchId, OperationalAnalytics } from '../src/types/index.js';
+import { vaccinationService } from './vaccinationService.js';
+import { IAP_2018_SCHEDULE_MASTER } from './vaccineScheduleData.js';
 
 export const apiRouter = Router();
 
@@ -127,14 +129,32 @@ apiRouter.get('/slots', (req, res) => {
 
 // --- APPOINTMENTS ---
 
-// Get appointments (filtered by parentId, doctorId, branchId, date)
+// Get appointments (filtered by parentId, doctorId, branchId, date, mobile, q)
 apiRouter.get('/appointments', (req, res) => {
-  const { parentId, doctorId, branchId, date } = req.query;
+  const { parentId, doctorId, branchId, date, mobile, q } = req.query;
   const state = db.getState();
+
+  // Always keep today's sessions queue recalculated
+  state.sessions.forEach((s) => {
+    schedulingService.recalculateSessionQueue(s.doctorId, s.branchId, s.date);
+  });
 
   let list = [...state.appointments];
   if (parentId) {
     list = list.filter((a) => a.parentId === parentId);
+  }
+  if (mobile) {
+    const cleanMobile = String(mobile).replace(/\D/g, '');
+    list = list.filter((a) => a.parentMobile.replace(/\D/g, '').includes(cleanMobile));
+  }
+  if (q) {
+    const query = String(q).trim().toLowerCase();
+    list = list.filter((a) =>
+      a.parentMobile.includes(query) ||
+      a.appointmentNumber.toLowerCase().includes(query) ||
+      a.childName.toLowerCase().includes(query) ||
+      a.doctorName.toLowerCase().includes(query)
+    );
   }
   if (doctorId) {
     list = list.filter((a) => a.doctorId === doctorId);
@@ -146,15 +166,61 @@ apiRouter.get('/appointments', (req, res) => {
     list = list.filter((a) => a.date === date);
   }
 
-  // Recalculate live ETAs before returning
-  if (doctorId && branchId && date) {
-    schedulingService.recalculateSessionQueue(String(doctorId), String(branchId) as BranchId, String(date));
-  }
-
   // Sort by date and booked time
   list.sort((a, b) => a.date.localeCompare(b.date) || a.bookedTime.localeCompare(b.bookedTime));
 
   res.json(list);
+});
+
+// Dedicated Public Appointment Tracking Endpoint (by mobile number or token number)
+apiRouter.get('/appointments/track', (req, res) => {
+  const { mobile, token, q } = req.query;
+  const state = db.getState();
+  const searchInput = String(mobile || token || q || '').trim();
+
+  if (!searchInput) {
+    return res.status(400).json({ error: 'Please provide a mobile number or token number to track.' });
+  }
+
+  // Recalculate live doctor queue for today's active sessions
+  state.sessions.forEach((s) => {
+    schedulingService.recalculateSessionQueue(s.doctorId, s.branchId, s.date);
+  });
+
+  const cleanDigits = searchInput.replace(/\D/g, '');
+  const searchLower = searchInput.toLowerCase();
+
+  const matched = state.appointments.filter((a) => {
+    const apptPhoneDigits = a.parentMobile.replace(/\D/g, '');
+    const phoneMatch = cleanDigits.length >= 4 && apptPhoneDigits.includes(cleanDigits);
+    const tokenMatch = a.appointmentNumber.toLowerCase().includes(searchLower);
+    return phoneMatch || tokenMatch;
+  });
+
+  // Sort by date then booked time
+  matched.sort((a, b) => a.date.localeCompare(b.date) || a.bookedTime.localeCompare(b.bookedTime));
+
+  // Augment with today status & doctor delay metrics
+  const enriched = matched.map((appt) => {
+    const isToday = appt.date === state.config.simulatedDate;
+    const session = state.sessions.find(
+      (s) => s.doctorId === appt.doctorId && s.branchId === appt.branchId && s.date === appt.date
+    );
+
+    return {
+      ...appt,
+      isToday,
+      currentDoctorDelayMinutes: isToday ? (session?.currentDelayMinutes ?? 0) : 0,
+      sessionStatus: session?.status || 'NOT_STARTED',
+      doctorActualStart: session?.actualStart,
+    };
+  });
+
+  res.json({
+    simulatedDate: state.config.simulatedDate,
+    simulatedTime: state.config.simulatedTime,
+    appointments: enriched,
+  });
 });
 
 // Single appointment
@@ -240,6 +306,20 @@ apiRouter.post('/appointments', (req, res) => {
     }
   }
 
+  // Check if parent is blocked due to consecutive no-shows
+  const parentRecord = state.parents.find(
+    (p) => p.id === effectiveParentId || (parentMobile && p.mobile === String(parentMobile).trim())
+  );
+  if (parentRecord && parentRecord.isBlocked) {
+    return res.status(403).json({
+      success: false,
+      isBlocked: true,
+      message: "As you didn't respect your appointment slot, we are temporarily blocking your appointment booking. Please contact hospital reception to resolve this.",
+      parentName: parentRecord.name,
+      consecutiveNoShows: parentRecord.consecutiveNoShows || 3,
+    });
+  }
+
   const result = schedulingService.bookAppointment({
     parentId: effectiveParentId,
     childId: effectiveChildId,
@@ -272,6 +352,11 @@ apiRouter.put('/appointments/:id/reschedule', (req, res) => {
 
 // --- PARENTS & CHILDREN MANAGEMENT ---
 
+apiRouter.get('/parents', (_req, res) => {
+  const state = db.getState();
+  res.json(state.parents);
+});
+
 apiRouter.get('/parents/search', (req, res) => {
   const { mobile } = req.query;
   const state = db.getState();
@@ -280,6 +365,37 @@ apiRouter.get('/parents/search', (req, res) => {
     return res.status(404).json({ message: 'Parent not found' });
   }
   res.json(parent);
+});
+
+// Check if a patient / parent is blocked from booking appointments
+apiRouter.get('/parents/booking-status', (req, res) => {
+  const { mobile, parentId } = req.query;
+  const state = db.getState();
+  const cleanMobile = mobile ? String(mobile).trim().replace(/\D/g, '') : '';
+  const parent = state.parents.find(
+    (p) =>
+      (parentId && p.id === parentId) ||
+      (cleanMobile && p.mobile.replace(/\D/g, '') === cleanMobile)
+  );
+
+  if (!parent) {
+    return res.json({
+      isBlocked: false,
+      consecutiveNoShows: 0,
+      exists: false,
+    });
+  }
+
+  res.json({
+    exists: true,
+    parentId: parent.id,
+    parentName: parent.name,
+    parentMobile: parent.mobile,
+    isBlocked: Boolean(parent.isBlocked),
+    consecutiveNoShows: parent.consecutiveNoShows || 0,
+    blockedReason: parent.blockedReason,
+    blockedAt: parent.blockedAt,
+  });
 });
 
 apiRouter.post('/parents', (req, res) => {
@@ -358,8 +474,8 @@ apiRouter.put('/parents/:parentId/children/:childId', (req, res) => {
 // --- RECEPTION ACTIONS ---
 
 apiRouter.post('/reception/check-in', (req, res) => {
-  const { appointmentId } = req.body;
-  const result = schedulingService.checkInPaymentReceived(appointmentId);
+  const { appointmentId, paymentMethod } = req.body;
+  const result = schedulingService.checkInPaymentReceived(appointmentId, paymentMethod);
   res.json(result);
 });
 
@@ -398,6 +514,51 @@ apiRouter.post('/reception/no-show', (req, res) => {
   res.json(result);
 });
 
+// Reception: Get all restricted or no-show parents
+apiRouter.get('/reception/blocked-parents', (_req, res) => {
+  const state = db.getState();
+  const list = state.parents
+    .filter((p) => p.isBlocked || (p.consecutiveNoShows && p.consecutiveNoShows > 0))
+    .map((p) => {
+      // Find past no-show appointments for this parent
+      const missedAppointments = state.appointments
+        .filter((a) => (a.parentId === p.id || a.parentMobile === p.mobile) && a.status === 'NO_SHOW')
+        .map((a) => ({
+          id: a.id,
+          appointmentNumber: a.appointmentNumber,
+          date: a.date,
+          bookedTime: a.bookedTime,
+          doctorName: a.doctorName,
+          branchName: a.branchName,
+          childName: a.childName,
+        }));
+
+      return {
+        ...p,
+        missedAppointments,
+      };
+    });
+
+  res.json(list);
+});
+
+// Reception: Re-enable booking with parent's justification
+apiRouter.post('/reception/unblock-patient', (req, res) => {
+  const { parentId, mobile, justification, receptionistName } = req.body;
+  const result = schedulingService.unblockPatient({
+    parentId,
+    mobile,
+    justification,
+    receptionistName,
+  });
+
+  if (!result.success) {
+    return res.status(400).json(result);
+  }
+
+  res.json(result);
+});
+
 apiRouter.post('/reception/cancel-session', (req, res) => {
   const { doctorId, branchId, reason } = req.body;
   const result = schedulingService.cancelDoctorSession(doctorId, branchId, reason);
@@ -413,18 +574,29 @@ apiRouter.get('/queue/live', (req, res) => {
   const isAllDoctors = !doctorId || doctorId === 'all';
 
   if (!isAllDoctors && branchId && targetDate) {
+    schedulingService.ensureDoctorSession(String(doctorId), String(branchId) as BranchId, targetDate);
     schedulingService.recalculateSessionQueue(String(doctorId), String(branchId) as BranchId, targetDate);
   } else if (isAllDoctors && branchId && targetDate) {
     state.doctors.forEach((d) => {
+      schedulingService.ensureDoctorSession(d.id, String(branchId) as BranchId, targetDate);
       schedulingService.recalculateSessionQueue(d.id, String(branchId) as BranchId, targetDate);
     });
   }
 
-  const session = isAllDoctors
+  let session = isAllDoctors
     ? state.sessions.find((s) => s.branchId === branchId && s.date === (targetDate || state.config.simulatedDate))
     : state.sessions.find(
         (s) => s.doctorId === doctorId && s.branchId === branchId && s.date === (targetDate || state.config.simulatedDate)
       );
+
+  if (!session && branchId) {
+    const defaultDocId = isAllDoctors ? (state.doctors[0]?.id || 'dr-subba-rao') : String(doctorId);
+    session = schedulingService.ensureDoctorSession(
+      defaultDocId,
+      branchId as BranchId,
+      targetDate || state.config.simulatedDate
+    );
+  }
 
   const appointments = state.appointments
     .filter(
@@ -502,6 +674,11 @@ apiRouter.get('/analytics', (req, res) => {
       ? Math.round(activeSessions.reduce((acc, s) => acc + s.currentDelayMinutes, 0) / activeSessions.length)
       : 8;
 
+  const cashPayments = state.appointments.filter(
+    (a) => a.paymentMethod === 'CASH' || (a.paymentStatus === 'PAID' && !a.paymentMethod)
+  ).length;
+  const phonePePayments = state.appointments.filter((a) => a.paymentMethod === 'PHONEPE').length;
+
   const analytics: OperationalAnalytics = {
     totalAppointments: total,
     onlineBookings: online,
@@ -516,6 +693,8 @@ apiRouter.get('/analytics', (req, res) => {
     emergencyAdjustments: state.appointments.filter((a) => a.isEmergency).length,
     appointmentsTreatedEarlierThanBooked: earlierTreatments || 1,
     averageScheduleDelayMinutes: avgDelay,
+    cashPayments,
+    phonePePayments,
   };
 
   res.json(analytics);
@@ -549,7 +728,8 @@ apiRouter.post('/simulation/advance-time', (req, res) => {
     schedulingService.recalculateSessionQueue(s.doctorId, s.branchId, s.date);
   });
 
-  res.json({ success: true, newTime: state.config.simulatedTime });
+  db.persistState();
+  res.json({ success: true, newTime: state.config.simulatedTime, config: state.config });
 });
 
 apiRouter.post('/simulation/doctor-delay', (req, res) => {
@@ -562,9 +742,10 @@ apiRouter.post('/simulation/doctor-delay', (req, res) => {
   if (session) {
     session.currentDelayMinutes = Number(delayMinutes);
     schedulingService.recalculateSessionQueue(doctorId, branchId, state.config.simulatedDate);
+    db.persistState();
   }
 
-  res.json({ success: true, currentDelay: session?.currentDelayMinutes });
+  res.json({ success: true, currentDelay: session?.currentDelayMinutes, config: state.config });
 });
 
 apiRouter.post('/simulation/trigger-scenario', (req, res) => {
@@ -623,18 +804,207 @@ apiRouter.post('/simulation/trigger-scenario', (req, res) => {
       }
       break;
     }
+    case 'consecutive-3-no-shows': {
+      const appt = state.appointments.find((a) => a.id === 'apt-6') || state.appointments.find((a) => a.parentId === 'p6');
+      if (appt) {
+        schedulingService.markNoShow(appt.id);
+      } else {
+        const parent = state.parents.find((p) => p.id === 'p6' || p.mobile === '9000000006');
+        if (parent) {
+          parent.consecutiveNoShows = 3;
+          parent.isBlocked = true;
+          parent.blockedReason = "As you didn't respect your appointment slot, we are temporarily blocking your appointment booking.";
+          parent.blockedAt = `${state.config.simulatedDate} ${state.config.simulatedTime}`;
+        }
+      }
+      break;
+    }
     case 'reset-database': {
       db.resetToSeed();
       break;
     }
   }
 
-  res.json({ success: true, scenarioId });
+  if (scenarioId !== 'reset-database') {
+    db.persistState();
+  }
+
+  res.json({ success: true, scenarioId, config: state.config });
+});
+
+// Set simulated date
+apiRouter.post('/simulation/set-date', (req, res) => {
+  const { date } = req.body;
+  const state = db.getState();
+  if (date) {
+    state.config.simulatedDate = String(date);
+    schedulingService.ensureDoctorSessionsForDate(String(date));
+    state.sessions.forEach((s) => {
+      schedulingService.recalculateSessionQueue(s.doctorId, s.branchId, s.date);
+    });
+    db.persistState();
+  }
+  res.json({ success: true, newDate: state.config.simulatedDate, config: state.config });
 });
 
 // Update system configuration
 apiRouter.put('/config', (req, res) => {
   const state = db.getState();
   Object.assign(state.config, req.body);
+  if (req.body.simulatedDate) {
+    schedulingService.ensureDoctorSessionsForDate(String(req.body.simulatedDate));
+    state.sessions.forEach((s) => {
+      schedulingService.recalculateSessionQueue(s.doctorId, s.branchId, s.date);
+    });
+  }
+  db.persistState();
   res.json({ success: true, config: state.config });
+});
+
+// ==========================================
+// VACCINATION SYSTEM ENDPOINTS (IAP 2018)
+// ==========================================
+
+// Master reference chart
+apiRouter.get('/vaccinations/schedule-master', (_req, res) => {
+  res.json({
+    standard: 'IAP 2018',
+    title: 'Immunization Table of IAP 2018 (Indian Academy of Pediatrics)',
+    milestones: IAP_2018_SCHEDULE_MASTER,
+  });
+});
+
+// Get vaccination program by child ID
+apiRouter.get('/vaccinations/child/:childId', (req, res) => {
+  const program = vaccinationService.getProgramByChildId(req.params.childId);
+  if (!program) {
+    return res.status(404).json({ success: false, message: 'Vaccination program not found for this child.' });
+  }
+  res.json({ success: true, program });
+});
+
+// Get vaccination programs for a parent's children
+apiRouter.get('/vaccinations/parent/:parentId', (req, res) => {
+  const programs = vaccinationService.getProgramsByParentId(req.params.parentId);
+  res.json({ success: true, programs });
+});
+
+// Reception: Register a child for vaccination
+apiRouter.post('/vaccinations/register', (req, res) => {
+  try {
+    const {
+      childId,
+      parentId,
+      firstVaccineDate,
+      firstMilestoneId,
+      branchId,
+      registeredBy,
+      paymentAmount,
+      paymentReceiptNo,
+      notes,
+    } = req.body;
+
+    if (!childId || !parentId || !firstVaccineDate || !firstMilestoneId) {
+      return res.status(400).json({
+        success: false,
+        message: 'Missing required fields: childId, parentId, firstVaccineDate, and firstMilestoneId are required.',
+      });
+    }
+
+    const program = vaccinationService.registerChild({
+      childId,
+      parentId,
+      firstVaccineDate,
+      firstMilestoneId,
+      branchId: branchId || 'kakinada',
+      registeredBy: registeredBy || 'Reception Desk',
+      paymentAmount: Number(paymentAmount) || 1500,
+      paymentReceiptNo: paymentReceiptNo || `REC-VAC-${Date.now().toString().slice(-6)}`,
+      notes,
+    });
+
+    res.status(201).json({
+      success: true,
+      message: `${program.childName} successfully enrolled into IAP 2018 Vaccination Program!`,
+      program,
+    });
+  } catch (err: any) {
+    console.error('Vaccination registration error:', err);
+    res.status(400).json({ success: false, message: err.message || 'Failed to register child for vaccination.' });
+  }
+});
+
+// Administer / mark a vaccine dose as completed
+apiRouter.put('/vaccinations/doses/:doseId/administer', (req, res) => {
+  try {
+    const { doseId } = req.params;
+    const { administeredDate, batchNumber, administeredBy, branchId, notes } = req.body;
+
+    const updatedProgram = vaccinationService.markDoseGiven({
+      doseId,
+      administeredDate,
+      batchNumber,
+      administeredBy,
+      branchId,
+      notes,
+    });
+
+    res.json({
+      success: true,
+      message: 'Vaccination dose successfully recorded as administered.',
+      program: updatedProgram,
+    });
+  } catch (err: any) {
+    console.error('Vaccine dose administration error:', err);
+    res.status(400).json({ success: false, message: err.message || 'Failed to administer vaccine dose.' });
+  }
+});
+
+// Reception: 15-day upcoming reminder list (plus overdue)
+apiRouter.get('/vaccinations/reception/due-reminders', (req, res) => {
+  try {
+    const daysAhead = req.query.days ? parseInt(String(req.query.days), 10) : 15;
+    const reminders = vaccinationService.getUpcomingDueReminders(daysAhead);
+    res.json({
+      success: true,
+      daysAhead,
+      count: reminders.length,
+      reminders,
+    });
+  } catch (err: any) {
+    console.error('Error fetching vaccine due reminders:', err);
+    res.status(500).json({ success: false, message: err.message || 'Failed to fetch reminders.' });
+  }
+});
+
+// Reception: Log a reminder call to a parent
+apiRouter.post('/vaccinations/reception/call-log', (req, res) => {
+  try {
+    const { programId, doseId, calledBy, callOutcome, parentFeedback, nextFollowUpDate } = req.body;
+
+    if (!programId || !doseId || !callOutcome) {
+      return res.status(400).json({
+        success: false,
+        message: 'Missing required fields: programId, doseId, and callOutcome are required.',
+      });
+    }
+
+    const log = vaccinationService.logReminderCall({
+      programId,
+      doseId,
+      calledBy: calledBy || 'Reception Desk',
+      callOutcome,
+      parentFeedback,
+      nextFollowUpDate,
+    });
+
+    res.status(201).json({
+      success: true,
+      message: 'Reminder call logged successfully.',
+      log,
+    });
+  } catch (err: any) {
+    console.error('Error logging reminder call:', err);
+    res.status(400).json({ success: false, message: err.message || 'Failed to log reminder call.' });
+  }
 });
