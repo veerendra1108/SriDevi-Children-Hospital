@@ -5,6 +5,7 @@ import {
   Parent,
   Child,
   Doctor,
+  DoctorAccount,
   HospitalBranch,
   DoctorSchedule,
   Appointment,
@@ -13,6 +14,12 @@ import {
   GalleryItem,
   HospitalReview,
   NotificationItem,
+  ChildAllergy,
+  ChildCondition,
+  Encounter,
+  PediatricGrowthRecord,
+  ClinicalCorrectionRequest,
+  ClinicalAuditLog,
 } from '../src/types/index.js';
 import { DatabaseState } from './db.js';
 
@@ -217,6 +224,68 @@ export class SqliteManager {
         program_id TEXT NOT NULL,
         data_json TEXT NOT NULL
       );
+
+      CREATE TABLE IF NOT EXISTS doctor_accounts (
+        id TEXT PRIMARY KEY,
+        doctor_id TEXT NOT NULL,
+        name TEXT NOT NULL,
+        email TEXT NOT NULL,
+        mobile TEXT NOT NULL,
+        password_hash TEXT NOT NULL,
+        medical_registration_no TEXT NOT NULL,
+        digital_signature_url TEXT,
+        is_approved INTEGER NOT NULL DEFAULT 1,
+        is_active INTEGER NOT NULL DEFAULT 1,
+        failed_login_attempts INTEGER NOT NULL DEFAULT 0,
+        locked_until TEXT,
+        created_at TEXT NOT NULL DEFAULT (datetime('now'))
+      );
+
+      CREATE TABLE IF NOT EXISTS doctor_auth_tokens (
+        token TEXT PRIMARY KEY,
+        doctor_id TEXT NOT NULL,
+        created_at TEXT NOT NULL DEFAULT (datetime('now')),
+        expires_at TEXT NOT NULL
+      );
+
+      CREATE TABLE IF NOT EXISTS child_allergies (
+        id TEXT PRIMARY KEY,
+        child_id TEXT NOT NULL,
+        data_json TEXT NOT NULL
+      );
+
+      CREATE TABLE IF NOT EXISTS child_conditions (
+        id TEXT PRIMARY KEY,
+        child_id TEXT NOT NULL,
+        data_json TEXT NOT NULL
+      );
+
+      CREATE TABLE IF NOT EXISTS encounters (
+        id TEXT PRIMARY KEY,
+        appointment_id TEXT,
+        child_id TEXT NOT NULL,
+        doctor_id TEXT NOT NULL,
+        date TEXT NOT NULL,
+        data_json TEXT NOT NULL
+      );
+
+      CREATE TABLE IF NOT EXISTS pediatric_growth_records (
+        id TEXT PRIMARY KEY,
+        child_id TEXT NOT NULL,
+        data_json TEXT NOT NULL
+      );
+
+      CREATE TABLE IF NOT EXISTS clinical_correction_requests (
+        id TEXT PRIMARY KEY,
+        child_id TEXT NOT NULL,
+        data_json TEXT NOT NULL
+      );
+
+      CREATE TABLE IF NOT EXISTS clinical_audit_logs (
+        id TEXT PRIMARY KEY,
+        child_id TEXT NOT NULL,
+        data_json TEXT NOT NULL
+      );
     `);
 
     // Safe column migrations for existing databases
@@ -231,6 +300,19 @@ export class SqliteManager {
     ensureColumn('parents', 'blocked_at', 'TEXT');
     ensureColumn('parents', 'unblock_history_json', "TEXT NOT NULL DEFAULT '[]'");
     ensureColumn('appointments', 'payment_method', 'TEXT');
+    ensureColumn('appointments', 'height_cm', 'REAL');
+    ensureColumn('appointments', 'weight_kg', 'REAL');
+    ensureColumn('appointments', 'temperature_f', 'REAL');
+    ensureColumn('appointments', 'pulse_rate', 'INTEGER');
+    ensureColumn('appointments', 'pediatric_bmi', 'REAL');
+    ensureColumn('children', 'permanent_id', 'TEXT');
+    ensureColumn('children', 'date_of_birth', 'TEXT');
+    ensureColumn('children', 'blood_group', 'TEXT');
+    ensureColumn('children', 'hospital_id', "TEXT NOT NULL DEFAULT 'sdch'");
+    ensureColumn('doctors', 'medical_registration_no', 'TEXT');
+    ensureColumn('doctors', 'mobile', 'TEXT');
+    ensureColumn('doctors', 'email', 'TEXT');
+    ensureColumn('doctors', 'digital_signature_url', 'TEXT');
   }
 
   public isDatabaseEmpty(): boolean {
@@ -242,6 +324,14 @@ export class SqliteManager {
     const tx = this.db.transaction(() => {
       // Clear existing
       this.db.exec(`
+        DELETE FROM clinical_audit_logs;
+        DELETE FROM clinical_correction_requests;
+        DELETE FROM pediatric_growth_records;
+        DELETE FROM encounters;
+        DELETE FROM child_conditions;
+        DELETE FROM child_allergies;
+        DELETE FROM doctor_auth_tokens;
+        DELETE FROM doctor_accounts;
         DELETE FROM vaccine_reminder_logs;
         DELETE FROM vaccination_programs;
         DELETE FROM notifications;
@@ -264,8 +354,8 @@ export class SqliteManager {
         VALUES (@id, @name, @mobile, @password_hash, @consecutiveNoShows, @isBlocked, @blockedReason, @blockedAt, @unblockHistoryJson)
       `);
       const insertChild = this.db.prepare(`
-        INSERT INTO children (id, parent_id, name, gender, age_years)
-        VALUES (@id, @parentId, @name, @gender, @ageYears)
+        INSERT INTO children (id, parent_id, name, gender, age_years, permanent_id, date_of_birth, blood_group, hospital_id)
+        VALUES (@id, @parentId, @name, @gender, @ageYears, @permanentId, @dateOfBirth, @bloodGroup, @hospitalId)
       `);
 
       for (const p of seed.parents) {
@@ -288,6 +378,10 @@ export class SqliteManager {
               name: c.name,
               gender: c.gender || null,
               ageYears: c.ageYears ?? null,
+              permanentId: c.permanentId || null,
+              dateOfBirth: c.dateOfBirth || null,
+              bloodGroup: c.bloodGroup || null,
+              hospitalId: c.hospitalId || 'sdch',
             });
           }
         }
@@ -304,8 +398,8 @@ export class SqliteManager {
 
       // Doctors
       const insertDoctor = this.db.prepare(`
-        INSERT INTO doctors (id, name, photo_url, qualifications, specialty, experience_years, summary, branches_json, active, schedule_description)
-        VALUES (@id, @name, @photoUrl, @qualifications, @specialty, @experienceYears, @summary, @branchesJson, @active, @scheduleDescription)
+        INSERT INTO doctors (id, name, photo_url, qualifications, specialty, experience_years, summary, branches_json, active, schedule_description, medical_registration_no, mobile, email, digital_signature_url)
+        VALUES (@id, @name, @photoUrl, @qualifications, @specialty, @experienceYears, @summary, @branchesJson, @active, @scheduleDescription, @medicalRegistrationNo, @mobile, @email, @digitalSignatureUrl)
       `);
       for (const d of seed.doctors) {
         insertDoctor.run({
@@ -319,7 +413,33 @@ export class SqliteManager {
           branchesJson: JSON.stringify(d.branches),
           active: d.active ? 1 : 0,
           scheduleDescription: d.scheduleDescription || null,
+          medicalRegistrationNo: d.medicalRegistrationNo || null,
+          mobile: d.mobile || null,
+          email: d.email || null,
+          digitalSignatureUrl: d.digitalSignatureUrl || null,
         });
+      }
+
+      // Doctor Accounts
+      if (seed.doctorAccounts) {
+        const insertDocAcc = this.db.prepare(`
+          INSERT INTO doctor_accounts (id, doctor_id, name, email, mobile, password_hash, medical_registration_no, digital_signature_url, is_approved, is_active)
+          VALUES (@id, @doctorId, @name, @email, @mobile, @passwordHash, @medicalRegistrationNo, @digitalSignatureUrl, @isApproved, @isActive)
+        `);
+        for (const da of seed.doctorAccounts) {
+          insertDocAcc.run({
+            id: da.id,
+            doctorId: da.doctorId,
+            name: da.name,
+            email: da.email,
+            mobile: da.mobile,
+            passwordHash: (seed.doctorPasswords && seed.doctorPasswords[da.id]) || 'Doctor@123',
+            medicalRegistrationNo: da.medicalRegistrationNo,
+            digitalSignatureUrl: da.digitalSignatureUrl || null,
+            isApproved: da.isApproved ? 1 : 0,
+            isActive: da.isActive ? 1 : 0,
+          });
+        }
       }
 
       // Branches
@@ -535,6 +655,99 @@ export class SqliteManager {
           });
         }
       }
+
+      // Child Allergies
+      if (seed.allergies) {
+        const insertAlg = this.db.prepare(`
+          INSERT INTO child_allergies (id, child_id, data_json)
+          VALUES (@id, @childId, @dataJson)
+        `);
+        for (const a of seed.allergies) {
+          insertAlg.run({
+            id: a.id,
+            childId: a.childId,
+            dataJson: JSON.stringify(a),
+          });
+        }
+      }
+
+      // Child Conditions
+      if (seed.conditions) {
+        const insertCnd = this.db.prepare(`
+          INSERT INTO child_conditions (id, child_id, data_json)
+          VALUES (@id, @childId, @dataJson)
+        `);
+        for (const c of seed.conditions) {
+          insertCnd.run({
+            id: c.id,
+            childId: c.childId,
+            dataJson: JSON.stringify(c),
+          });
+        }
+      }
+
+      // Encounters
+      if (seed.encounters) {
+        const insertEnc = this.db.prepare(`
+          INSERT INTO encounters (id, appointment_id, child_id, doctor_id, date, data_json)
+          VALUES (@id, @appointmentId, @childId, @doctorId, @date, @dataJson)
+        `);
+        for (const e of seed.encounters) {
+          insertEnc.run({
+            id: e.id,
+            appointmentId: e.appointmentId || null,
+            childId: e.childId,
+            doctorId: e.doctorId,
+            date: e.date,
+            dataJson: JSON.stringify(e),
+          });
+        }
+      }
+
+      // Pediatric Growth Records
+      if (seed.growthRecords) {
+        const insertGr = this.db.prepare(`
+          INSERT INTO pediatric_growth_records (id, child_id, data_json)
+          VALUES (@id, @childId, @dataJson)
+        `);
+        for (const g of seed.growthRecords) {
+          insertGr.run({
+            id: g.id,
+            childId: g.childId,
+            dataJson: JSON.stringify(g),
+          });
+        }
+      }
+
+      // Correction Requests
+      if (seed.correctionRequests) {
+        const insertReq = this.db.prepare(`
+          INSERT INTO clinical_correction_requests (id, child_id, data_json)
+          VALUES (@id, @childId, @dataJson)
+        `);
+        for (const cr of seed.correctionRequests) {
+          insertReq.run({
+            id: cr.id,
+            childId: cr.childId,
+            dataJson: JSON.stringify(cr),
+          });
+        }
+      }
+
+      // Audit Logs
+      if (seed.auditLogs) {
+        const insertLog = this.db.prepare(`
+          INSERT INTO clinical_audit_logs (id, child_id, data_json)
+          VALUES (@id, @childId, @dataJson)
+        `);
+        for (const al of seed.auditLogs) {
+          insertLog.run({
+            id: al.id,
+            childId: al.childId,
+            dataJson: JSON.stringify(al),
+          });
+        }
+      }
     });
 
     tx();
@@ -551,10 +764,14 @@ export class SqliteManager {
       const list = childrenByParent.get(c.parent_id) || [];
       list.push({
         id: c.id,
+        permanentId: c.permanent_id || undefined,
         parentId: c.parent_id,
         name: c.name,
         gender: c.gender || undefined,
         ageYears: c.age_years ?? undefined,
+        dateOfBirth: c.date_of_birth || undefined,
+        bloodGroup: c.blood_group || undefined,
+        hospitalId: c.hospital_id || 'sdch',
       });
       childrenByParent.set(c.parent_id, list);
     }
@@ -601,7 +818,30 @@ export class SqliteManager {
       branches: JSON.parse(d.branches_json),
       active: d.active === 1,
       scheduleDescription: d.schedule_description || undefined,
+      medicalRegistrationNo: d.medical_registration_no || undefined,
+      mobile: d.mobile || undefined,
+      email: d.email || undefined,
+      digitalSignatureUrl: d.digital_signature_url || undefined,
     }));
+
+    // Doctor Accounts
+    const docAccRows = this.db.prepare('SELECT * FROM doctor_accounts').all() as any[];
+    const doctorPasswords: Record<string, string> = {};
+    const doctorAccounts: DoctorAccount[] = docAccRows.map((da) => {
+      doctorPasswords[da.id] = da.password_hash;
+      return {
+        id: da.id,
+        doctorId: da.doctor_id,
+        name: da.name,
+        email: da.email,
+        mobile: da.mobile,
+        medicalRegistrationNo: da.medical_registration_no,
+        digitalSignatureUrl: da.digital_signature_url || undefined,
+        isApproved: da.is_approved === 1,
+        isActive: da.is_active === 1,
+        status: da.is_approved === 1 ? 'APPROVED' : 'PENDING',
+      };
+    });
 
     // Branches
     const branchRows = this.db.prepare('SELECT * FROM branches').all() as any[];
@@ -771,11 +1011,68 @@ export class SqliteManager {
       vaccineReminderLogs = [];
     }
 
+    // Child Allergies
+    let allergies: ChildAllergy[] = [];
+    try {
+      const algRows = this.db.prepare('SELECT data_json FROM child_allergies').all() as any[];
+      allergies = algRows.map((r) => JSON.parse(r.data_json));
+    } catch {
+      allergies = [];
+    }
+
+    // Child Conditions
+    let conditions: ChildCondition[] = [];
+    try {
+      const cndRows = this.db.prepare('SELECT data_json FROM child_conditions').all() as any[];
+      conditions = cndRows.map((r) => JSON.parse(r.data_json));
+    } catch {
+      conditions = [];
+    }
+
+    // Encounters
+    let encounters: Encounter[] = [];
+    try {
+      const encRows = this.db.prepare('SELECT data_json FROM encounters').all() as any[];
+      encounters = encRows.map((r) => JSON.parse(r.data_json));
+    } catch {
+      encounters = [];
+    }
+
+    // Pediatric Growth Records
+    let growthRecords: PediatricGrowthRecord[] = [];
+    try {
+      const grRows = this.db.prepare('SELECT data_json FROM pediatric_growth_records').all() as any[];
+      growthRecords = grRows.map((r) => JSON.parse(r.data_json));
+    } catch {
+      growthRecords = [];
+    }
+
+    // Correction Requests
+    let correctionRequests: ClinicalCorrectionRequest[] = [];
+    try {
+      const crRows = this.db.prepare('SELECT data_json FROM clinical_correction_requests').all() as any[];
+      correctionRequests = crRows.map((r) => JSON.parse(r.data_json));
+    } catch {
+      correctionRequests = [];
+    }
+
+    // Audit Logs
+    let auditLogs: ClinicalAuditLog[] = [];
+    try {
+      const alRows = this.db.prepare('SELECT data_json FROM clinical_audit_logs').all() as any[];
+      auditLogs = alRows.map((r) => JSON.parse(r.data_json));
+    } catch {
+      auditLogs = [];
+    }
+
     return {
       parents,
       parentPasswords,
       receptionUsers,
       doctors,
+      doctorAccounts,
+      doctorPasswords,
+      doctorSessionsAuth: [],
       branches,
       schedules,
       appointments,
@@ -786,6 +1083,12 @@ export class SqliteManager {
       notifications,
       vaccinationPrograms,
       vaccineReminderLogs,
+      allergies,
+      conditions,
+      encounters,
+      growthRecords,
+      correctionRequests,
+      auditLogs,
     };
   }
 

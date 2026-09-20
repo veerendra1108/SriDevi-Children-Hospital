@@ -25,9 +25,11 @@ import {
   Syringe,
   Baby,
   Sparkles,
+  FileText,
 } from 'lucide-react';
 import { ChildVaccineTracker } from './ChildVaccineTracker.js';
 import { ChildVaccinationProgram } from '../types/index.js';
+import { ChildHealthDashboardModal } from './ChildHealthDashboardModal.js';
 
 interface ParentDashboardProps {
   parentUser: Parent;
@@ -52,6 +54,7 @@ export const ParentDashboard: React.FC<ParentDashboardProps> = ({
   const [editChildName, setEditChildName] = useState('');
   const [showAddChildModal, setShowAddChildModal] = useState(false);
   const [newChildName, setNewChildName] = useState('');
+  const [viewingEmrChildId, setViewingEmrChildId] = useState<string | null>(null);
 
   // Vaccination Program State
   const [activeTab, setActiveTab] = useState<'APPOINTMENTS' | 'VACCINES'>('APPOINTMENTS');
@@ -500,20 +503,37 @@ export const ParentDashboard: React.FC<ParentDashboardProps> = ({
                     Child Profile
                   </span>
                   <h4 className="font-bold text-slate-900 text-base mt-0.5">{child.name}</h4>
-                  <span className="text-[11px] text-slate-400 font-mono">ID: {child.id}</span>
+                  <div className="flex items-center gap-1.5 mt-1">
+                    <span className="text-[11px] font-mono font-bold text-teal-800 bg-teal-50 px-2 py-0.5 rounded border border-teal-200">
+                      {child.permanentId || 'DM-SDCH-000101'}
+                    </span>
+                    <span className="text-[11px] text-slate-500 font-medium">
+                      {child.gender || 'Child'}, {child.ageYears || 3} Yrs
+                    </span>
+                  </div>
                 </div>
 
-                <button
-                  id={`edit-child-btn-${child.id}`}
-                  onClick={() => {
-                    setEditingChild(child);
-                    setEditChildName(child.name);
-                  }}
-                  className="p-2 text-slate-400 hover:text-teal-700 hover:bg-slate-50 rounded-lg transition"
-                  title="Edit child name"
-                >
-                  <Edit2 className="w-4 h-4" />
-                </button>
+                <div className="flex items-center gap-1">
+                  <button
+                    onClick={() => setViewingEmrChildId(child.id)}
+                    className="px-2.5 py-1.5 bg-teal-50 text-teal-700 hover:bg-teal-100 rounded-xl text-xs font-semibold flex items-center gap-1 transition"
+                    title="View Medical Records & Prescriptions"
+                  >
+                    <FileText className="w-3.5 h-3.5" />
+                    <span>EMR</span>
+                  </button>
+                  <button
+                    id={`edit-child-btn-${child.id}`}
+                    onClick={() => {
+                      setEditingChild(child);
+                      setEditChildName(child.name);
+                    }}
+                    className="p-2 text-slate-400 hover:text-teal-700 hover:bg-slate-50 rounded-lg transition"
+                    title="Edit child name"
+                  >
+                    <Edit2 className="w-4 h-4" />
+                  </button>
+                </div>
               </div>
             ))}
           </div>
@@ -655,6 +675,15 @@ export const ParentDashboard: React.FC<ParentDashboardProps> = ({
               </div>
             </div>
           </div>
+        )}
+        {/* Child EMR Health Dashboard Modal for Parent */}
+        {viewingEmrChildId && (
+          <ChildHealthDashboardModal
+            isOpen={Boolean(viewingEmrChildId)}
+            onClose={() => setViewingEmrChildId(null)}
+            childId={viewingEmrChildId}
+            onRefresh={fetchParentAppointments}
+          />
         )}
       </div>
     </div>

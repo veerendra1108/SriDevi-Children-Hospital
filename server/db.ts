@@ -1,6 +1,8 @@
 import {
   Parent,
+  Child,
   Doctor,
+  DoctorAccount,
   HospitalBranch,
   DoctorSchedule,
   Appointment,
@@ -12,6 +14,12 @@ import {
   VaccinationDose,
   ChildVaccinationProgram,
   VaccineCallReminderLog,
+  ChildAllergy,
+  ChildCondition,
+  Encounter,
+  PediatricGrowthRecord,
+  ClinicalCorrectionRequest,
+  ClinicalAuditLog,
 } from '../src/types/index.js';
 import { SqliteManager } from './sqlite.js';
 import { IAP_2018_SCHEDULE_MASTER, addDays } from './vaccineScheduleData.js';
@@ -26,6 +34,9 @@ export interface DatabaseState {
     name: string;
   }[];
   doctors: Doctor[];
+  doctorAccounts: DoctorAccount[];
+  doctorPasswords: Record<string, string>; // doctorId -> password
+  doctorSessionsAuth: { token: string; doctorId: string; expiresAt: string }[];
   branches: HospitalBranch[];
   schedules: DoctorSchedule[];
   appointments: Appointment[];
@@ -36,6 +47,12 @@ export interface DatabaseState {
   notifications: NotificationItem[];
   vaccinationPrograms: ChildVaccinationProgram[];
   vaccineReminderLogs: VaccineCallReminderLog[];
+  allergies: ChildAllergy[];
+  conditions: ChildCondition[];
+  encounters: Encounter[];
+  growthRecords: PediatricGrowthRecord[];
+  correctionRequests: ClinicalCorrectionRequest[];
+  auditLogs: ClinicalAuditLog[];
 }
 
 export function getLocalDateString(d: Date = new Date()): string {
@@ -52,8 +69,8 @@ export function getInitialSeedData(): DatabaseState {
       name: 'Ravi Kumar',
       mobile: '9000000001',
       children: [
-        { id: 'c1-1', parentId: 'p1', name: 'Aarav', gender: 'Boy' },
-        { id: 'c1-2', parentId: 'p1', name: 'Diya', gender: 'Girl' },
+        { id: 'c1-1', permanentId: 'DM-SDCH-000101', parentId: 'p1', name: 'Aarav Kumar', gender: 'Boy', dateOfBirth: '2022-07-15', bloodGroup: 'O+', ageYears: 4, hospitalId: 'sdch' },
+        { id: 'c1-2', permanentId: 'DM-SDCH-000102', parentId: 'p1', name: 'Diya Kumar', gender: 'Girl', dateOfBirth: '2024-03-10', bloodGroup: 'B+', ageYears: 2, hospitalId: 'sdch' },
       ],
     },
     {
@@ -61,7 +78,7 @@ export function getInitialSeedData(): DatabaseState {
       name: 'Suresh Babu',
       mobile: '9000000002',
       children: [
-        { id: 'c2-1', parentId: 'p2', name: 'Vihaan', gender: 'Boy' },
+        { id: 'c2-1', permanentId: 'DM-SDCH-000103', parentId: 'p2', name: 'Vihaan Babu', gender: 'Boy', dateOfBirth: '2023-01-20', bloodGroup: 'A+', ageYears: 3, hospitalId: 'sdch' },
       ],
     },
     {
@@ -69,8 +86,8 @@ export function getInitialSeedData(): DatabaseState {
       name: 'Lakshmi Devi',
       mobile: '9000000003',
       children: [
-        { id: 'c3-1', parentId: 'p3', name: 'Ananya', gender: 'Girl' },
-        { id: 'c3-2', parentId: 'p3', name: 'Aditya', gender: 'Boy' },
+        { id: 'c3-1', permanentId: 'DM-SDCH-000104', parentId: 'p3', name: 'Ananya Devi', gender: 'Girl', dateOfBirth: '2021-11-05', bloodGroup: 'AB+', ageYears: 4, hospitalId: 'sdch' },
+        { id: 'c3-2', permanentId: 'DM-SDCH-000105', parentId: 'p3', name: 'Aditya Devi', gender: 'Boy', dateOfBirth: '2025-02-14', bloodGroup: 'O+', ageYears: 1, hospitalId: 'sdch' },
       ],
     },
     {
@@ -78,7 +95,7 @@ export function getInitialSeedData(): DatabaseState {
       name: 'Rajesh Kumar',
       mobile: '9000000004',
       children: [
-        { id: 'c4-1', parentId: 'p4', name: 'Ishaan', gender: 'Boy' },
+        { id: 'c4-1', permanentId: 'DM-SDCH-000106', parentId: 'p4', name: 'Ishaan Kumar', gender: 'Boy', dateOfBirth: '2022-09-18', bloodGroup: 'B+', ageYears: 4, hospitalId: 'sdch' },
       ],
     },
     {
@@ -86,8 +103,8 @@ export function getInitialSeedData(): DatabaseState {
       name: 'Priya Rao',
       mobile: '9000000005',
       children: [
-        { id: 'c5-1', parentId: 'p5', name: 'Myra', gender: 'Girl' },
-        { id: 'c5-2', parentId: 'p5', name: 'Riya', gender: 'Girl' },
+        { id: 'c5-1', permanentId: 'DM-SDCH-000107', parentId: 'p5', name: 'Myra Rao', gender: 'Girl', dateOfBirth: '2023-05-30', bloodGroup: 'A-', ageYears: 3, hospitalId: 'sdch' },
+        { id: 'c5-2', permanentId: 'DM-SDCH-000108', parentId: 'p5', name: 'Riya Rao', gender: 'Girl', dateOfBirth: '2025-06-12', bloodGroup: 'O+', ageYears: 1, hospitalId: 'sdch' },
       ],
     },
     {
@@ -97,7 +114,7 @@ export function getInitialSeedData(): DatabaseState {
       consecutiveNoShows: 2,
       isBlocked: false,
       children: [
-        { id: 'c6-1', parentId: 'p6', name: 'Arjun', gender: 'Boy' },
+        { id: 'c6-1', permanentId: 'DM-SDCH-000109', parentId: 'p6', name: 'Arjun', gender: 'Boy', dateOfBirth: '2023-08-25', bloodGroup: 'B+', ageYears: 3, hospitalId: 'sdch' },
       ],
     },
     {
@@ -105,8 +122,8 @@ export function getInitialSeedData(): DatabaseState {
       name: 'Sravani',
       mobile: '9000000007',
       children: [
-        { id: 'c7-1', parentId: 'p7', name: 'Kavya', gender: 'Girl' },
-        { id: 'c7-2', parentId: 'p7', name: 'Karthik', gender: 'Boy' },
+        { id: 'c7-1', permanentId: 'DM-SDCH-000110', parentId: 'p7', name: 'Kavya', gender: 'Girl', dateOfBirth: '2022-01-11', bloodGroup: 'O+', ageYears: 4, hospitalId: 'sdch' },
+        { id: 'c7-2', permanentId: 'DM-SDCH-000111', parentId: 'p7', name: 'Karthik', gender: 'Boy', dateOfBirth: '2024-08-20', bloodGroup: 'A+', ageYears: 2, hospitalId: 'sdch' },
       ],
     },
     {
@@ -114,7 +131,7 @@ export function getInitialSeedData(): DatabaseState {
       name: 'Venkatesh',
       mobile: '9000000008',
       children: [
-        { id: 'c8-1', parentId: 'p8', name: 'Sai', gender: 'Boy' },
+        { id: 'c8-1', permanentId: 'DM-SDCH-000112', parentId: 'p8', name: 'Sai', gender: 'Boy', dateOfBirth: '2023-04-10', bloodGroup: 'B+', ageYears: 3, hospitalId: 'sdch' },
       ],
     },
     {
@@ -122,8 +139,8 @@ export function getInitialSeedData(): DatabaseState {
       name: 'Deepika',
       mobile: '9000000009',
       children: [
-        { id: 'c9-1', parentId: 'p9', name: 'Tara', gender: 'Girl' },
-        { id: 'c9-2', parentId: 'p9', name: 'Nikhil', gender: 'Boy' },
+        { id: 'c9-1', permanentId: 'DM-SDCH-000113', parentId: 'p9', name: 'Tara', gender: 'Girl', dateOfBirth: '2022-12-05', bloodGroup: 'O+', ageYears: 3, hospitalId: 'sdch' },
+        { id: 'c9-2', permanentId: 'DM-SDCH-000114', parentId: 'p9', name: 'Nikhil', gender: 'Boy', dateOfBirth: '2024-10-15', bloodGroup: 'AB+', ageYears: 1, hospitalId: 'sdch' },
       ],
     },
     {
@@ -131,7 +148,7 @@ export function getInitialSeedData(): DatabaseState {
       name: 'Praveen',
       mobile: '9000000010',
       children: [
-        { id: 'c10-1', parentId: 'p10', name: 'Akhil', gender: 'Boy' },
+        { id: 'c10-1', permanentId: 'DM-SDCH-000115', parentId: 'p10', name: 'Anika', gender: 'Girl', dateOfBirth: '2023-06-18', bloodGroup: 'B+', ageYears: 3, hospitalId: 'sdch' },
       ],
     },
   ];
@@ -169,27 +186,65 @@ export function getInitialSeedData(): DatabaseState {
       id: 'dr-subba-rao',
       name: 'Dr. Subba Rao Vadarevu',
       photoUrl: 'https://images.unsplash.com/photo-1622253692010-333f2da6031d?auto=format&fit=crop&w=600&q=80',
-      qualifications: 'Qualifications will be updated',
+      qualifications: 'MBBS, MD (Pediatrics), DCH',
       specialty: 'Senior Pediatric Specialist & Neonatal Care',
       experienceYears: 28,
-      summary: 'Doctor profile information will be updated. Dr. Subba Rao Vadarevu has been caring for infants, children, and adolescents with unmatched clinical attentiveness and generational trust across Godavari districts.',
+      summary: 'Dr. Subba Rao Vadarevu has been caring for infants, children, and adolescents with unmatched clinical attentiveness and generational trust across Godavari districts.',
       branches: ['kakinada', 'pithapuram'],
       active: true,
       scheduleDescription: 'Daily consultation sessions from 10:00 AM to 07:00 PM across hospital branches.',
+      medicalRegistrationNo: 'APMC-38492',
+      mobile: '9440112233',
+      email: 'subbarao@drsridevichildren.com',
+      digitalSignatureUrl: '/signatures/dr-subba-rao.png',
     },
     {
       id: 'dr-prashant',
       name: 'Dr. Prashant',
       photoUrl: 'https://images.unsplash.com/photo-1537368910025-700350fe46c7?auto=format&fit=crop&w=600&q=80',
-      qualifications: 'Qualifications will be updated',
+      qualifications: 'MBBS, DNB (Pediatrics), Fellowship in Neonatology',
       specialty: 'Consultant Pediatrician & Child Health Specialist',
       experienceYears: 14,
-      summary: 'Doctor profile information will be updated. Specializing in pediatric development, immunization tracking, and acute childhood illnesses with calm, parent-friendly guidance.',
+      summary: 'Specializing in pediatric development, immunization tracking, and acute childhood illnesses with calm, parent-friendly guidance.',
       branches: ['kakinada', 'pithapuram'],
       active: true,
       scheduleDescription: 'Daily consultation sessions from 10:00 AM to 07:00 PM across hospital branches.',
+      medicalRegistrationNo: 'APMC-61204',
+      mobile: '9440112244',
+      email: 'prashant@drsridevichildren.com',
+      digitalSignatureUrl: '/signatures/dr-prashant.png',
     },
   ];
+
+  const doctorAccounts: DoctorAccount[] = [
+    {
+      id: 'dr-subba-rao',
+      doctorId: 'dr-subba-rao',
+      name: 'Dr. Subba Rao Vadarevu',
+      email: 'subbarao@drsridevichildren.com',
+      mobile: '9440112233',
+      medicalRegistrationNo: 'APMC-38492',
+      digitalSignatureUrl: '/signatures/dr-subba-rao.png',
+      isApproved: true,
+      isActive: true,
+    },
+    {
+      id: 'dr-prashant',
+      doctorId: 'dr-prashant',
+      name: 'Dr. Prashant',
+      email: 'prashant@drsridevichildren.com',
+      mobile: '9440112244',
+      medicalRegistrationNo: 'APMC-61204',
+      digitalSignatureUrl: '/signatures/dr-prashant.png',
+      isApproved: true,
+      isActive: true,
+    },
+  ];
+
+  const doctorPasswords: Record<string, string> = {
+    'dr-subba-rao': 'Doctor@123',
+    'dr-prashant': 'Doctor@123',
+  };
 
   const branches: HospitalBranch[] = [
     {
@@ -897,11 +952,202 @@ export function getInitialSeedData(): DatabaseState {
     },
   ];
 
+  const allergies: ChildAllergy[] = [
+    {
+      id: 'alg-1',
+      childId: 'c1-1',
+      allergyType: 'MEDICINE',
+      substance: 'Amoxicillin',
+      reaction: 'Severe skin rash and facial hives',
+      severity: 'SEVERE',
+      status: 'ACTIVE',
+      identifiedDate: '2026-05-10',
+      doctorId: 'dr-prashant',
+      doctorName: 'Dr. Prashant',
+      notes: 'Occurred 2 hours after first oral dose of Augmentin syrup. Avoid penicillin family.',
+      createdAt: `${today} 09:00:00`,
+      updatedAt: `${today} 09:00:00`,
+    },
+    {
+      id: 'alg-2',
+      childId: 'c2-1',
+      allergyType: 'FOOD',
+      substance: 'Peanuts & Tree Nuts',
+      reaction: 'Mild lip tingling and perioral erythema',
+      severity: 'MODERATE',
+      status: 'ACTIVE',
+      identifiedDate: '2026-02-14',
+      doctorId: 'dr-subba-rao',
+      doctorName: 'Dr. Subba Rao Vadarevu',
+      notes: 'Parent carries Cetirizine syrup as precaution.',
+      createdAt: `${today} 09:00:00`,
+      updatedAt: `${today} 09:00:00`,
+    },
+  ];
+
+  const conditions: ChildCondition[] = [
+    {
+      id: 'cnd-1',
+      childId: 'c1-1',
+      conditionName: 'Recurring Sinus Symptoms & Reactive Wheezing',
+      category: 'RESPIRATORY',
+      status: 'RECURRING',
+      firstIdentifiedDate: '2026-04-12',
+      doctorId: 'dr-subba-rao',
+      doctorName: 'Dr. Subba Rao Vadarevu',
+      notes: 'Symptoms increase during monsoon and winter seasonal changes. Recommend steam inhalation and avoiding cold beverages.',
+      lastReviewedDate: '2026-07-22',
+      followUpRecommendation: 'Review in 3 months or upon respiratory distress',
+      createdAt: `${today} 09:00:00`,
+      updatedAt: `${today} 09:00:00`,
+    },
+    {
+      id: 'cnd-2',
+      childId: 'c3-1',
+      conditionName: 'Mild Childhood Bronchial Asthma',
+      category: 'RESPIRATORY',
+      status: 'ACTIVE',
+      firstIdentifiedDate: '2025-11-20',
+      doctorId: 'dr-prashant',
+      doctorName: 'Dr. Prashant',
+      notes: 'Maintained on Salbutamol inhaler with spacer as needed for acute nocturnal cough.',
+      lastReviewedDate: '2026-06-15',
+      followUpRecommendation: '6-monthly pediatric pulmonology follow-up',
+      createdAt: `${today} 09:00:00`,
+      updatedAt: `${today} 09:00:00`,
+    },
+  ];
+
+  const growthRecords: PediatricGrowthRecord[] = [
+    {
+      id: 'gr-1',
+      childId: 'c1-1',
+      recordedDate: '2026-03-15',
+      ageYears: 3,
+      ageMonths: 8,
+      heightCm: 99.0,
+      weightKg: 14.8,
+      pediatricBmi: 15.1,
+      growthStatus: 'HEALTHY',
+      interpretationText: 'Healthy pediatric growth range (50th percentile on IAP chart)',
+      doctorConfirmed: true,
+      recordedByRole: 'RECEPTIONIST',
+      recordedByName: 'Kakinada Frontdesk',
+    },
+    {
+      id: 'gr-2',
+      childId: 'c1-1',
+      recordedDate: today,
+      ageYears: 4,
+      ageMonths: 2,
+      heightCm: 104.0,
+      weightKg: 16.2,
+      pediatricBmi: 15.0,
+      heightDeltaCm: 5.0,
+      weightDeltaKg: 1.4,
+      growthStatus: 'HEALTHY',
+      interpretationText: 'Healthy pediatric growth range. Expected height velocity maintained.',
+      doctorConfirmed: true,
+      recordedByRole: 'DOCTOR',
+      recordedByName: 'Dr. Prashant',
+    },
+  ];
+
+  const encounters: Encounter[] = [
+    {
+      id: 'enc-1',
+      appointmentId: 'apt-1',
+      childId: 'c1-1',
+      childPermanentId: 'DM-SDCH-000101',
+      childName: 'Aarav Kumar',
+      parentId: 'p1',
+      parentName: 'Ravi Kumar',
+      parentMobile: '9000000001',
+      doctorId: 'dr-subba-rao',
+      doctorName: 'Dr. Subba Rao Vadarevu',
+      branchId: 'kakinada',
+      date: '2026-07-22',
+      visitType: 'PHYSICAL_OPD',
+      arrivalTime: '09:45',
+      startTime: '10:05',
+      endTime: '10:20',
+      heightCm: 102.5,
+      weightKg: 15.6,
+      temperatureF: 98.6,
+      pulseRate: 98,
+      pediatricBmi: 14.9,
+      growthStatus: 'HEALTHY',
+      chiefComplaints: ['Vomiting x 3 episodes', 'Mild abdominal colic'],
+      clinicalObservations: 'Abdomen soft, non-tender. Mild dehydration, alert and responsive.',
+      diagnosis: 'Acute Gastritis with mild dehydration',
+      doctorNotes: 'Advised oral rehydration solution (ORS), light bland diet, avoid milk products for 24h.',
+      followUpDate: '2026-07-25',
+      status: 'FINALIZED',
+      createdAt: '2026-07-22 10:20:00',
+      updatedAt: '2026-07-22 10:20:00',
+      prescription: {
+        id: 'rx-1',
+        encounterId: 'enc-1',
+        prescriptionNumber: 'RX-SDCH-2026-000084',
+        childId: 'c1-1',
+        childPermanentId: 'DM-SDCH-000101',
+        childName: 'Aarav Kumar',
+        doctorId: 'dr-subba-rao',
+        doctorName: 'Dr. Subba Rao Vadarevu',
+        doctorRegNo: 'APMC-38492',
+        hospitalName: 'Sri Devi Children Hospital',
+        branchId: 'kakinada',
+        date: '2026-07-22',
+        version: 1,
+        diagnosis: 'Acute Gastritis with mild dehydration',
+        items: [
+          {
+            id: 'rxi-1',
+            medicineName: 'Ondansetron Oral Solution (Emset)',
+            genericName: 'Ondansetron 2mg/5ml',
+            form: 'SYRUP',
+            strength: '2mg/5ml',
+            dosage: '3 ml',
+            frequency: 'SOS',
+            timing: 'BEFORE_FOOD',
+            durationDays: 2,
+            timeSlots: ['Morning', 'Afternoon', 'Night'],
+            instructionEn: 'Give 3 ml 15 minutes before food only if child vomits.',
+            instructionTe: 'వాంతులు అయినప్పుడు మాత్రమే భోజనానికి 15 నిమిషాల ముందు 3 ml ఇవ్వండి.',
+          },
+          {
+            id: 'rxi-2',
+            medicineName: 'Probiotic Zinc Sachet (Econorm / Darolac)',
+            genericName: 'Saccharomyces boulardii + Zinc',
+            form: 'DROPS',
+            strength: '250mg',
+            dosage: '1 sachet',
+            frequency: 'TWICE_DAILY',
+            timing: 'AFTER_FOOD',
+            durationDays: 5,
+            timeSlots: ['Morning', 'Night'],
+            instructionEn: 'Mix 1 sachet in lukewarm water or breastmilk twice daily for 5 days.',
+            instructionTe: 'గోరువెచ్చని నీటిలో ఒక ప్యాకెట్ కలిపి రోజుకు రెండుసార్లు 5 రోజుల పాటు ఇవ్వండి.',
+          },
+        ],
+        specialNotesEn: 'Ensure plentiful sips of ORS after every loose stool or vomiting episode.',
+        specialNotesTe: 'ప్రతి వాంతి తర్వాత తరచుగా ఓఆర్ఎస్ (ORS) నీరు కొద్దికొద్దిగా తాగించండి.',
+        followUpDate: '2026-07-25',
+        status: 'FINALIZED',
+        createdAt: '2026-07-22 10:20:00',
+        updatedAt: '2026-07-22 10:20:00',
+      },
+    },
+  ];
+
   return {
     parents,
     parentPasswords,
     receptionUsers,
     doctors,
+    doctorAccounts,
+    doctorPasswords,
+    doctorSessionsAuth: [],
     branches,
     schedules,
     appointments,
@@ -912,6 +1158,12 @@ export function getInitialSeedData(): DatabaseState {
     notifications,
     vaccinationPrograms,
     vaccineReminderLogs,
+    allergies,
+    conditions,
+    encounters,
+    growthRecords,
+    correctionRequests: [],
+    auditLogs: [],
   };
 }
 
@@ -978,9 +1230,64 @@ class Database {
           }
           this.persistState();
         }
+
+        const fresh = getInitialSeedData();
+        // Ensure doctor accounts, permanent child IDs and clinical data are loaded
+        if (!this.state.doctorAccounts || this.state.doctorAccounts.length === 0) {
+          this.state.doctorAccounts = fresh.doctorAccounts;
+          this.state.doctorPasswords = fresh.doctorPasswords;
+          this.state.doctorSessionsAuth = [];
+          this.state.allergies = fresh.allergies;
+          this.state.conditions = fresh.conditions;
+          this.state.encounters = fresh.encounters;
+          this.state.growthRecords = fresh.growthRecords;
+          this.state.correctionRequests = [];
+          this.state.auditLogs = [];
+          this.persistState();
+        }
+
+        // Ensure permanent Child IDs and details for all children
+        const seedChildrenMap = new Map<string, any>();
+        fresh.parents.forEach((p) => {
+          p.children.forEach((c) => {
+            seedChildrenMap.set(c.id, c);
+          });
+        });
+
+        let childIdCounter = 101;
+        let childUpdated = false;
+        if (this.state.parents) {
+          this.state.parents.forEach((p) => {
+            if (p.children) {
+              p.children.forEach((c) => {
+                const seedChild = seedChildrenMap.get(c.id);
+                if (!c.permanentId) {
+                  c.permanentId = seedChild?.permanentId || `DM-SDCH-000${childIdCounter}`;
+                  c.hospitalId = 'sdch';
+                  childUpdated = true;
+                }
+                if (!c.dateOfBirth && seedChild?.dateOfBirth) {
+                  c.dateOfBirth = seedChild.dateOfBirth;
+                  childUpdated = true;
+                }
+                if (!c.bloodGroup && seedChild?.bloodGroup) {
+                  c.bloodGroup = seedChild.bloodGroup;
+                  childUpdated = true;
+                }
+                if (c.ageYears === undefined && seedChild?.ageYears !== undefined) {
+                  c.ageYears = seedChild.ageYears;
+                  childUpdated = true;
+                }
+                childIdCounter++;
+              });
+            }
+          });
+        }
+        if (childUpdated) {
+          this.persistState();
+        }
       }
     } catch (err) {
-      console.warn('SQLite init warning, falling back to memory seed:', err);
       this.state = getInitialSeedData();
     }
   }

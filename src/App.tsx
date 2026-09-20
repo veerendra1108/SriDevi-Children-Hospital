@@ -9,6 +9,7 @@ import {
   GalleryItem,
   HospitalReview,
   SystemConfiguration,
+  DoctorAccount,
 } from './types/index.js';
 import { Header } from './components/Header.js';
 import { Footer } from './components/Footer.js';
@@ -22,10 +23,12 @@ import { ReviewsSection } from './components/ReviewsSection.js';
 import { ContactSection } from './components/ContactSection.js';
 import { ParentLoginModal } from './components/ParentLoginModal.js';
 import { ReceptionLoginModal } from './components/ReceptionLoginModal.js';
+import { DoctorLoginModal } from './components/DoctorLoginModal.js';
 import { BookAppointmentModal } from './components/BookAppointmentModal.js';
 import { RescheduleModal } from './components/RescheduleModal.js';
 import { ParentDashboard } from './components/ParentDashboard.js';
 import { ReceptionDashboard } from './components/ReceptionDashboard.js';
+import { DoctorDashboard } from './components/DoctorDashboard.js';
 import { AnalyticsModal } from './components/AnalyticsModal.js';
 import { TrackAppointmentModal } from './components/TrackAppointmentModal.js';
 
@@ -37,10 +40,16 @@ export default function App() {
     branchId: BranchId;
     name: string;
   } | null>(null);
+  const [doctorUser, setDoctorUser] = useState<{
+    doctor: Doctor;
+    account: DoctorAccount;
+    token: string;
+  } | null>(null);
 
   // Modals
   const [isParentLoginOpen, setIsParentLoginOpen] = useState(false);
   const [isReceptionLoginOpen, setIsReceptionLoginOpen] = useState(false);
+  const [isDoctorLoginOpen, setIsDoctorLoginOpen] = useState(false);
   const [isBookModalOpen, setIsBookModalOpen] = useState(false);
   const [isRescheduleModalOpen, setIsRescheduleModalOpen] = useState(false);
   const [isTrackModalOpen, setIsTrackModalOpen] = useState(false);
@@ -73,7 +82,24 @@ export default function App() {
   // Initial data loading
   useEffect(() => {
     loadHospitalData();
+    restoreDoctorSession();
   }, []);
+
+  const restoreDoctorSession = async () => {
+    const savedToken = localStorage.getItem('sri_devi_doctor_token');
+    if (!savedToken) return;
+    try {
+      const res = await fetch('/api/doctor/me', {
+        headers: { 'x-doctor-token': savedToken },
+      });
+      const data = await res.json();
+      if (data.success && data.doctor && data.account) {
+        setDoctorUser({ doctor: data.doctor, account: data.account, token: savedToken });
+      }
+    } catch (err) {
+      console.error('Session restore failed:', err);
+    }
+  };
 
   const loadHospitalData = async () => {
     try {
@@ -302,6 +328,27 @@ export default function App() {
     setActiveTab('home');
   };
 
+  const handleDoctorLoginSuccess = (doctor: Doctor, account: DoctorAccount, token: string) => {
+    setDoctorUser({ doctor, account, token });
+    setActiveTab('doctor-desk');
+  };
+
+  const handleLogoutDoctor = async () => {
+    if (doctorUser?.token) {
+      try {
+        await fetch('/api/auth/doctor-logout', {
+          method: 'POST',
+          headers: { 'x-doctor-token': doctorUser.token },
+        });
+      } catch (err) {
+        console.error(err);
+      }
+    }
+    localStorage.removeItem('sri_devi_doctor_token');
+    setDoctorUser(null);
+    setActiveTab('home');
+  };
+
   const handleRefreshParent = async () => {
     if (!parentUser) return;
     try {
@@ -336,10 +383,13 @@ export default function App() {
         onNavigate={handleNavigate}
         parentUser={parentUser}
         receptionUser={receptionUser}
+        doctorUser={doctorUser}
         onOpenParentLogin={() => setIsParentLoginOpen(true)}
         onOpenReceptionLogin={() => setIsReceptionLoginOpen(true)}
+        onOpenDoctorLogin={() => setIsDoctorLoginOpen(true)}
         onLogoutParent={handleLogoutParent}
         onLogoutReception={handleLogoutReception}
+        onLogoutDoctor={handleLogoutDoctor}
       />
 
       {/* Main View Switcher */}
@@ -361,6 +411,12 @@ export default function App() {
             config={config}
             onLogout={handleLogoutReception}
             onOpenAnalytics={() => setIsAnalyticsOpen(true)}
+          />
+        ) : activeTab === 'doctor-desk' && doctorUser ? (
+          <DoctorDashboard
+            doctorUser={doctorUser}
+            config={config}
+            onLogout={handleLogoutDoctor}
           />
         ) : (
           /* Public Website View */
@@ -484,6 +540,12 @@ export default function App() {
       <AnalyticsModal
         isOpen={isAnalyticsOpen}
         onClose={() => setIsAnalyticsOpen(false)}
+      />
+
+      <DoctorLoginModal
+        isOpen={isDoctorLoginOpen}
+        onClose={() => setIsDoctorLoginOpen(false)}
+        onLoginSuccess={handleDoctorLoginSuccess}
       />
     </div>
   );

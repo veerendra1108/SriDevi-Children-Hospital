@@ -11,6 +11,34 @@ export interface Doctor {
   branches: BranchId[];
   active: boolean;
   scheduleDescription?: string;
+  medicalRegistrationNo?: string;
+  mobile?: string;
+  email?: string;
+  digitalSignatureUrl?: string;
+}
+
+export interface DoctorAccount {
+  id: string; // matches doctor.id (e.g. 'dr-subba-rao')
+  doctorId: string;
+  name: string;
+  fullName?: string;
+  email: string;
+  mobile: string;
+  medicalRegistrationNo: string;
+  specialization?: string;
+  primaryBranchId?: BranchId;
+  digitalSignatureUrl?: string;
+  isApproved: boolean;
+  isActive: boolean;
+  status?: 'APPROVED' | 'PENDING' | 'REJECTED';
+  lastLoginAt?: string;
+}
+
+export interface DoctorAuthSession {
+  token: string;
+  doctor: Doctor;
+  account: DoctorAccount;
+  expiresAt: string;
 }
 
 export interface HospitalBranch {
@@ -31,7 +59,7 @@ export interface DoctorSchedule {
   branchId: BranchId;
   daysOfWeek: number[]; // 0=Sunday, 1=Monday, ..., 6=Saturday
   startTime: string; // "10:00"
-  endTime: string;   // "13:30"
+  endTime: string;   // "19:00"
   slotDurationMinutes: number; // 15
   bufferMinutesPerHour: number; // 10
   isAvailable: boolean;
@@ -40,10 +68,14 @@ export interface DoctorSchedule {
 
 export interface Child {
   id: string;
+  permanentId?: string; // e.g. "DM-SDCH-000101"
   parentId: string;
   name: string;
   gender?: 'Boy' | 'Girl';
-  ageYears?: number; // optional, disabled by default in UI
+  ageYears?: number;
+  dateOfBirth?: string; // YYYY-MM-DD
+  bloodGroup?: string;
+  hospitalId?: string;
 }
 
 export interface ParentUnblockRecord {
@@ -119,6 +151,12 @@ export interface Appointment {
   positionInQueue?: number;
   childrenAhead?: number;
   history: AppointmentHistoryItem[];
+  // Clinical vitals recorded for Smart OPD triage / consultation
+  heightCm?: number;
+  weightKg?: number;
+  temperatureF?: number;
+  pulseRate?: number;
+  pediatricBmi?: number;
   createdAt: string;
   updatedAt: string;
 }
@@ -291,5 +329,186 @@ export interface UpcomingVaccineReminderItem {
   daysRemaining: number; // positive = days until due, 0 = due today, negative = overdue
   urgency: 'OVERDUE' | 'DUE_TODAY' | 'DUE_WITHIN_7_DAYS' | 'DUE_WITHIN_15_DAYS';
   lastCallLog?: VaccineCallReminderLog;
+}
+
+// ================= PEDIATRIC EMR DOMAIN TYPES =================
+
+export type AllergyType = 'MEDICINE' | 'FOOD' | 'ENVIRONMENTAL' | 'OTHER';
+export type AllergySeverity = 'MILD' | 'MODERATE' | 'SEVERE' | 'LIFE_THREATENING';
+export type AllergyStatus = 'ACTIVE' | 'INACTIVE' | 'ENTERED_IN_ERROR';
+
+export interface ChildAllergy {
+  id: string;
+  childId: string;
+  allergyType: AllergyType;
+  substance: string; // e.g. "Amoxicillin"
+  reaction: string;  // e.g. "Skin rash and facial hives"
+  severity: AllergySeverity;
+  status: AllergyStatus;
+  identifiedDate: string; // YYYY-MM-DD
+  doctorId: string;
+  doctorName: string;
+  notes?: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export type ConditionCategory = 'RESPIRATORY' | 'CHRONIC' | 'DEVELOPMENTAL' | 'GASTROINTESTINAL' | 'ALLERGIC' | 'OTHER';
+export type ConditionStatus = 'ACTIVE' | 'RECURRING' | 'RESOLVED' | 'UNDER_OBSERVATION';
+
+export interface ChildCondition {
+  id: string;
+  childId: string;
+  conditionName: string; // e.g. "Recurring Sinusitis", "Childhood Asthma"
+  category: ConditionCategory;
+  status: ConditionStatus;
+  firstIdentifiedDate: string; // YYYY-MM-DD
+  doctorId: string;
+  doctorName: string;
+  notes?: string;
+  lastReviewedDate?: string;
+  followUpRecommendation?: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface ClinicalAlert {
+  id: string;
+  childId: string;
+  alertType: 'CRITICAL_ALLERGY' | 'CHRONIC_CONDITION' | 'DOCTOR_WARNING';
+  title: string;
+  description: string;
+  severity: 'HIGH' | 'MEDIUM';
+  doctorId: string;
+  createdAt: string;
+}
+
+export interface PediatricGrowthRecord {
+  id: string;
+  childId: string;
+  recordedDate: string;
+  ageYears: number;
+  ageMonths: number;
+  heightCm: number;
+  weightKg: number;
+  pediatricBmi: number;
+  heightDeltaCm?: number;
+  weightDeltaKg?: number;
+  growthStatus: 'HEALTHY' | 'BELOW_RANGE' | 'ABOVE_RANGE' | 'REVIEW_ADVISED';
+  interpretationText: string;
+  doctorConfirmed: boolean;
+  recordedByRole: 'DOCTOR' | 'RECEPTIONIST';
+  recordedByName: string;
+  notes?: string;
+}
+
+export type MedicineForm = 'SYRUP' | 'DROPS' | 'TABLET' | 'INHALER' | 'INJECTION' | 'CREAM';
+export type DoseFrequency = 'ONCE_DAILY' | 'TWICE_DAILY' | 'THRICE_DAILY' | 'FOUR_TIMES_DAILY' | 'SOS';
+export type MealTiming = 'AFTER_FOOD' | 'BEFORE_FOOD' | 'WITH_FOOD' | 'AT_BEDTIME' | 'EMPTY_STOMACH';
+
+export interface PrescriptionItem {
+  id: string;
+  medicineName: string; // Brand or Generic name
+  genericName?: string;
+  form: MedicineForm;
+  strength?: string;    // e.g. "250mg/5ml"
+  dosage: string;       // e.g. "5 ml", "1 tablet"
+  frequency: DoseFrequency;
+  timing: MealTiming;
+  durationDays: number;
+  timeSlots: ('Morning' | 'Afternoon' | 'Night')[];
+  instructionEn: string;
+  instructionTe: string;
+}
+
+export interface Prescription {
+  id: string;
+  encounterId: string;
+  prescriptionNumber: string; // e.g. "RX-SDCH-2026-000101"
+  childId: string;
+  childPermanentId: string;
+  childName: string;
+  doctorId: string;
+  doctorName: string;
+  doctorRegNo: string;
+  hospitalName: string;
+  branchId: BranchId;
+  date: string;
+  version: number;
+  diagnosis?: string;
+  items: PrescriptionItem[];
+  allergyBannerSnapshot?: string[];
+  specialNotesEn?: string;
+  specialNotesTe?: string;
+  followUpDate?: string;
+  status: 'FINALIZED' | 'SUPERSEDED';
+  digitalSignatureUrl?: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface Encounter {
+  id: string;
+  appointmentId?: string;
+  childId: string;
+  childPermanentId: string;
+  childName: string;
+  parentId: string;
+  parentName: string;
+  parentMobile: string;
+  doctorId: string;
+  doctorName: string;
+  branchId: BranchId;
+  date: string; // YYYY-MM-DD
+  visitType: 'PHYSICAL_OPD' | 'TELECONSULTATION' | 'EMERGENCY_WALKIN';
+  arrivalTime?: string;
+  startTime?: string;
+  endTime?: string;
+  // Vitals recorded
+  heightCm?: number;
+  weightKg?: number;
+  temperatureF?: number;
+  pulseRate?: number;
+  pediatricBmi?: number;
+  growthStatus?: string;
+  // Clinical notes
+  chiefComplaints: string[];
+  clinicalObservations?: string;
+  diagnosis?: string;
+  doctorNotes?: string;
+  followUpDate?: string;
+  prescription?: Prescription;
+  status: 'IN_PROGRESS' | 'FINALIZED' | 'AMENDED';
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface ClinicalCorrectionRequest {
+  id: string;
+  childId: string;
+  parentId: string;
+  parentName: string;
+  parentMobile: string;
+  entityType: 'ALLERGY' | 'CONDITION' | 'RECORD';
+  entityId?: string;
+  requestNote: string;
+  status: 'PENDING' | 'ACCEPTED' | 'REJECTED';
+  doctorReviewNotes?: string;
+  reviewedByDoctorId?: string;
+  createdAt: string;
+  reviewedAt?: string;
+}
+
+export interface ClinicalAuditLog {
+  id: string;
+  actorId: string;
+  actorRole: 'DOCTOR' | 'RECEPTIONIST' | 'ADMIN';
+  actorName: string;
+  action: 'CREATE' | 'UPDATE' | 'RESOLVE' | 'ENTER_ERROR' | 'FINALIZE_PRESCRIPTION';
+  entityType: 'ALLERGY' | 'CONDITION' | 'ENCOUNTER' | 'PRESCRIPTION' | 'GROWTH';
+  entityId: string;
+  childId: string;
+  details: string;
+  timestamp: string;
 }
 

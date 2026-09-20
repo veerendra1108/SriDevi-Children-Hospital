@@ -82,6 +82,12 @@ export const ReceptionDashboard: React.FC<ReceptionDashboardProps> = ({
   const [showBlockedModal, setShowBlockedModal] = useState(false);
   const [blockedParentsList, setBlockedParentsList] = useState<any[]>([]);
   const [unblockModalParent, setUnblockModalParent] = useState<any | null>(null);
+
+  // Triage vitals on Check-In
+  const [checkInHeight, setCheckInHeight] = useState('');
+  const [checkInWeight, setCheckInWeight] = useState('');
+  const [checkInTemp, setCheckInTemp] = useState('');
+  const [checkInPulse, setCheckInPulse] = useState('');
   const [unblockJustification, setUnblockJustification] = useState<string>('');
   const [unblockLoading, setUnblockLoading] = useState<boolean>(false);
   const [actionMessage, setActionMessage] = useState<string>('');
@@ -187,12 +193,23 @@ export const ReceptionDashboard: React.FC<ReceptionDashboardProps> = ({
       const res = await fetch('/api/reception/check-in', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ appointmentId: apptId, paymentMethod }),
+        body: JSON.stringify({
+          appointmentId: apptId,
+          paymentMethod,
+          heightCm: checkInHeight ? Number(checkInHeight) : undefined,
+          weightKg: checkInWeight ? Number(checkInWeight) : undefined,
+          temperatureF: checkInTemp ? Number(checkInTemp) : undefined,
+          pulseRate: checkInPulse ? Number(checkInPulse) : undefined,
+        }),
       });
       const data = await res.json();
       if (data.success) {
         showToast(`Payment received via ${paymentMethod === 'PHONEPE' ? 'PhonePe / UPI' : 'Cash'} & patient checked in.`);
         setCheckInModalAppt(null);
+        setCheckInHeight('');
+        setCheckInWeight('');
+        setCheckInTemp('');
+        setCheckInPulse('');
         fetchLiveQueue();
       }
     } catch (err) {
@@ -1874,6 +1891,59 @@ export const ReceptionDashboard: React.FC<ReceptionDashboardProps> = ({
                 <div className="text-slate-600 flex items-center justify-between">
                   <span>Dr. {checkInModalAppt.doctorName.replace(/^Dr\.\s*/, '')}</span>
                   <span className="text-slate-500 font-mono">{checkInModalAppt.parentMobile}</span>
+                </div>
+              </div>
+
+              {/* Triage Vitals Quick Entry */}
+              <div className="bg-teal-50/60 p-3.5 rounded-2xl border border-teal-200/80 space-y-2">
+                <div className="text-[11px] font-bold text-teal-900 uppercase tracking-wider flex items-center justify-between">
+                  <span>Preliminary Triage Vitals (Optional)</span>
+                  <span className="text-[10px] text-teal-600 font-normal">Recorded for doctor review</span>
+                </div>
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-xs">
+                  <div>
+                    <label className="block text-[10px] font-semibold text-slate-600 mb-0.5">Height (cm)</label>
+                    <input
+                      type="number"
+                      step="0.1"
+                      value={checkInHeight}
+                      onChange={(e) => setCheckInHeight(e.target.value)}
+                      placeholder="e.g. 95"
+                      className="w-full p-2 bg-white rounded-xl border border-slate-200 text-xs font-semibold"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-[10px] font-semibold text-slate-600 mb-0.5">Weight (kg)</label>
+                    <input
+                      type="number"
+                      step="0.1"
+                      value={checkInWeight}
+                      onChange={(e) => setCheckInWeight(e.target.value)}
+                      placeholder="e.g. 14"
+                      className="w-full p-2 bg-white rounded-xl border border-slate-200 text-xs font-semibold"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-[10px] font-semibold text-slate-600 mb-0.5">Temp (°F)</label>
+                    <input
+                      type="number"
+                      step="0.1"
+                      value={checkInTemp}
+                      onChange={(e) => setCheckInTemp(e.target.value)}
+                      placeholder="98.6"
+                      className="w-full p-2 bg-white rounded-xl border border-slate-200 text-xs font-semibold"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-[10px] font-semibold text-slate-600 mb-0.5">Pulse (bpm)</label>
+                    <input
+                      type="number"
+                      value={checkInPulse}
+                      onChange={(e) => setCheckInPulse(e.target.value)}
+                      placeholder="100"
+                      className="w-full p-2 bg-white rounded-xl border border-slate-200 text-xs font-semibold"
+                    />
+                  </div>
                 </div>
               </div>
 

@@ -15,18 +15,22 @@ import {
   Activity,
   Globe,
   Baby,
+  Stethoscope,
 } from 'lucide-react';
-import { Parent } from '../types/index.js';
+import { Parent, Doctor, DoctorAccount } from '../types/index.js';
 
 interface HeaderProps {
   currentView: string;
   onNavigate: (view: string) => void;
   parentUser: Parent | null;
   receptionUser: { username: string; branchId: string; name: string } | null;
+  doctorUser?: { doctor: Doctor; account: DoctorAccount; token: string } | null;
   onOpenParentLogin: () => void;
   onOpenReceptionLogin: () => void;
+  onOpenDoctorLogin: () => void;
   onLogoutParent: () => void;
   onLogoutReception: () => void;
+  onLogoutDoctor: () => void;
 }
 
 export const Header: React.FC<HeaderProps> = ({
@@ -34,16 +38,20 @@ export const Header: React.FC<HeaderProps> = ({
   onNavigate,
   parentUser,
   receptionUser,
+  doctorUser,
   onOpenParentLogin,
   onOpenReceptionLogin,
+  onOpenDoctorLogin,
   onLogoutParent,
   onLogoutReception,
+  onLogoutDoctor,
 }) => {
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
 
   const isPatientPortal = currentView === 'parent-portal' && !!parentUser;
   const isReceptionDesk = currentView === 'reception-desk' && !!receptionUser;
-  const isDashboardView = isPatientPortal || isReceptionDesk;
+  const isDoctorDesk = currentView === 'doctor-desk' && !!doctorUser;
+  const isDashboardView = isPatientPortal || isReceptionDesk || isDoctorDesk;
 
   const publicNavItems = [
     { id: 'home', label: 'Home' },
@@ -126,6 +134,12 @@ export const Header: React.FC<HeaderProps> = ({
               <span className="hidden sm:inline-flex items-center gap-1 px-3 py-1 rounded-full bg-amber-50 text-amber-900 border border-amber-200 text-xs font-bold">
                 <ShieldCheck className="w-3.5 h-3.5 text-amber-600" />
                 Reception Desk Console
+              </span>
+            )}
+            {isDoctorDesk && (
+              <span className="hidden sm:inline-flex items-center gap-1 px-3 py-1 rounded-full bg-emerald-50 text-emerald-900 border border-emerald-300 text-xs font-bold">
+                <Stethoscope className="w-3.5 h-3.5 text-emerald-600" />
+                Doctor Desk: {doctorUser?.doctor.name}
               </span>
             )}
           </div>
@@ -214,6 +228,40 @@ export const Header: React.FC<HeaderProps> = ({
                   >
                     <ShieldCheck className="w-3.5 h-3.5 text-slate-500" />
                     <span>Reception</span>
+                  </button>
+                )}
+
+                {doctorUser ? (
+                  <div className="flex items-center gap-2 bg-emerald-50 border border-emerald-200 px-3 py-1.5 rounded-xl">
+                    <button
+                      id="header-doctor-dash-btn"
+                      onClick={() => onNavigate('doctor-desk')}
+                      className="text-left"
+                    >
+                      <div className="text-[10px] font-semibold tracking-wide uppercase text-emerald-800">
+                        Doctor Desk
+                      </div>
+                      <div className="text-xs font-bold text-slate-900">
+                        {doctorUser.doctor.name}
+                      </div>
+                    </button>
+                    <button
+                      id="header-doctor-logout-btn"
+                      onClick={onLogoutDoctor}
+                      className="p-1 text-slate-400 hover:text-rose-600 rounded transition"
+                      title="Log out doctor"
+                    >
+                      <LogOut className="w-4 h-4" />
+                    </button>
+                  </div>
+                ) : (
+                  <button
+                    id="header-doctor-login-btn"
+                    onClick={onOpenDoctorLogin}
+                    className="flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-semibold text-emerald-800 bg-emerald-50 border border-emerald-200/90 hover:bg-emerald-100 transition shadow-2xs"
+                  >
+                    <Stethoscope className="w-3.5 h-3.5 text-emerald-600" />
+                    <span>Doctor Desk</span>
                   </button>
                 )}
 
@@ -529,6 +577,43 @@ export const Header: React.FC<HeaderProps> = ({
                   >
                     <ShieldCheck className="w-4 h-4 text-slate-500" />
                     Reception Login
+                  </button>
+                )}
+
+                {doctorUser ? (
+                  <div className="flex items-center justify-between p-3 bg-emerald-50 rounded-xl">
+                    <div>
+                      <div className="text-xs text-emerald-800 font-semibold">Doctor Desk</div>
+                      <div className="text-sm font-bold text-slate-900">
+                        {doctorUser.doctor.name}
+                      </div>
+                    </div>
+                    <div className="flex gap-2">
+                      <button
+                        onClick={() => handleNavClick('doctor-desk')}
+                        className="px-3 py-1.5 bg-emerald-600 text-white rounded-lg text-xs font-semibold"
+                      >
+                        Desk
+                      </button>
+                      <button
+                        onClick={onLogoutDoctor}
+                        className="p-1.5 text-rose-600 bg-white border border-rose-200 rounded-lg text-xs"
+                      >
+                        Logout
+                      </button>
+                    </div>
+                  </div>
+                ) : (
+                  <button
+                    id="mobile-doctor-login-btn"
+                    onClick={() => {
+                      setMobileMenuOpen(false);
+                      onOpenDoctorLogin();
+                    }}
+                    className="w-full flex items-center justify-center gap-2 py-2.5 rounded-xl text-sm font-semibold text-emerald-800 bg-emerald-50 border border-emerald-200"
+                  >
+                    <Stethoscope className="w-4 h-4 text-emerald-600" />
+                    Doctor Desk Login
                   </button>
                 )}
               </div>
