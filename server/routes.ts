@@ -1688,6 +1688,96 @@ apiRouter.get('/emr/medicines/catalog', (_req, res) => {
       timing: 'BEFORE_FOOD',
       defaultDurationDays: 2,
     },
+    {
+      medicineName: 'Syrup Ondansetron (Ondem)',
+      genericName: 'Ondansetron',
+      form: 'SYRUP',
+      strength: '2mg / 5ml',
+      defaultDosage: '2.5 ml',
+      frequency: 'SOS',
+      timing: 'BEFORE_FOOD',
+      defaultDurationDays: 2,
+    },
+    {
+      medicineName: 'Syrup Mefenamic Acid (Meftal-P)',
+      genericName: 'Mefenamic Acid',
+      form: 'SYRUP',
+      strength: '100mg / 5ml',
+      defaultDosage: '4 ml',
+      frequency: 'SOS',
+      timing: 'AFTER_FOOD',
+      defaultDurationDays: 2,
+    },
+    {
+      medicineName: 'Syrup Levosalbutamol + Ambroxol (Ascoril LS Junior)',
+      genericName: 'Levosalbutamol + Ambroxol',
+      form: 'SYRUP',
+      strength: '0.5mg + 15mg / 5ml',
+      defaultDosage: '3.5 ml',
+      frequency: 'THRICE_DAILY',
+      timing: 'AFTER_FOOD',
+      defaultDurationDays: 5,
+    },
+    {
+      medicineName: 'Drops Simethicone + Dill Oil (Colicaid Drops)',
+      genericName: 'Simethicone + Dill Oil',
+      form: 'DROPS',
+      strength: '40mg / ml',
+      defaultDosage: '8 drops',
+      frequency: 'THRICE_DAILY',
+      timing: 'BEFORE_FOOD',
+      defaultDurationDays: 7,
+    },
+    {
+      medicineName: 'Drops Saline Nasal (Nasoclear / Solspre)',
+      genericName: 'Sodium Chloride 0.65%',
+      form: 'DROPS',
+      strength: '0.65% w/v',
+      defaultDosage: '2 drops in each nostril',
+      frequency: 'THRICE_DAILY',
+      timing: 'BEFORE_FOOD',
+      defaultDurationDays: 5,
+    },
+    {
+      medicineName: 'Drops Vitamin D3 (D-3 Must 800 IU)',
+      genericName: 'Cholecalciferol',
+      form: 'DROPS',
+      strength: '800 IU / ml',
+      defaultDosage: '0.5 ml',
+      frequency: 'ONCE_DAILY',
+      timing: 'AFTER_FOOD',
+      defaultDurationDays: 30,
+    },
+    {
+      medicineName: 'Syrup Ferrous Ascorbate (Orofer XT)',
+      genericName: 'Ferrous Ascorbate + Folic Acid',
+      form: 'SYRUP',
+      strength: '30mg Iron / 5ml',
+      defaultDosage: '2.5 ml',
+      frequency: 'ONCE_DAILY',
+      timing: 'BEFORE_FOOD',
+      defaultDurationDays: 30,
+    },
+    {
+      medicineName: 'Syrup Albendazole (Zentel 400mg)',
+      genericName: 'Albendazole',
+      form: 'SYRUP',
+      strength: '400mg / 10ml',
+      defaultDosage: '10 ml',
+      frequency: 'ONCE_DAILY',
+      timing: 'AT_BEDTIME',
+      defaultDurationDays: 1,
+    },
+    {
+      medicineName: 'Ointment Mupirocin 2% (T-Bact)',
+      genericName: 'Mupirocin',
+      form: 'CREAM',
+      strength: '2% w/w',
+      defaultDosage: 'Apply thin layer',
+      frequency: 'THRICE_DAILY',
+      timing: 'AFTER_FOOD',
+      defaultDurationDays: 7,
+    },
   ];
 
   res.json({ success: true, catalog });
@@ -1868,6 +1958,44 @@ apiRouter.post('/emr/encounters/:encounterId/finalize', (req, res) => {
     schedulingService.completeConsultation(encounter.appointmentId);
   }
 
+  // Automatically advance queue: pull the next waiting child into consultation
+  let nextPatient: any = null;
+  const targetDoctorId = doctor.id || encounter.doctorId;
+  const targetBranchId = encounter.branchId;
+  const targetDate = state.config.simulatedDate;
+
+  const nextWaitingAppt = state.appointments
+    .filter(
+      (a) =>
+        a.doctorId === targetDoctorId &&
+        a.branchId === targetBranchId &&
+        a.date === targetDate &&
+        (a.status === 'WAITING' || a.status === 'ARRIVED')
+    )
+    .sort((a, b) => timeToMinutes(a.bookedTime) - timeToMinutes(b.bookedTime))[0]
+    ||
+    state.appointments
+    .filter(
+      (a) =>
+        a.doctorId === targetDoctorId &&
+        a.branchId === targetBranchId &&
+        a.date === targetDate &&
+        (a.status === 'BOOKED' || a.status === 'APPROACHING')
+    )
+    .sort((a, b) => timeToMinutes(a.bookedTime) - timeToMinutes(b.bookedTime))[0];
+
+  if (nextWaitingAppt) {
+    schedulingService.sendToDoctor(nextWaitingAppt.id);
+    const allChildren = state.parents.flatMap((p) => p.children);
+    const child = allChildren.find((c) => c.id === nextWaitingAppt.childId);
+    nextPatient = {
+      ...nextWaitingAppt,
+      childPermanentId: child?.permanentId || 'DM-SDCH-000101',
+      childAge: child?.ageYears,
+      childGender: child?.gender,
+    };
+  }
+
   db.persistState();
 
   logClinicalAudit({
@@ -1886,6 +2014,70 @@ apiRouter.post('/emr/encounters/:encounterId/finalize', (req, res) => {
     message: 'Consultation completed and digital prescription generated.',
     encounter,
     prescription,
+    nextPatient,
+  });
+});
+
+// Quick Complete Treatment & Automatically Call Next Patient
+apiRouter.post('/doctor/complete-treatment', (req, res) => {
+  const { doctorId, branchId, appointmentId, encounterId } = req.body;
+  const state = db.getState();
+
+  if (appointmentId) {
+    schedulingService.completeConsultation(appointmentId);
+  }
+  if (encounterId) {
+    const enc = state.encounters.find((e) => e.id === encounterId);
+    if (enc && enc.status === 'IN_PROGRESS') {
+      enc.status = 'FINALIZED';
+      enc.endTime = state.config.simulatedTime;
+      enc.updatedAt = new Date().toISOString();
+    }
+  }
+
+  const targetDoctorId = doctorId || state.doctors[0]?.id || 'dr-subba-rao';
+  const targetBranchId = (branchId as BranchId) || 'kakinada';
+  const targetDate = state.config.simulatedDate;
+
+  const nextWaitingAppt = state.appointments
+    .filter(
+      (a) =>
+        a.doctorId === targetDoctorId &&
+        a.branchId === targetBranchId &&
+        a.date === targetDate &&
+        (a.status === 'WAITING' || a.status === 'ARRIVED')
+    )
+    .sort((a, b) => timeToMinutes(a.bookedTime) - timeToMinutes(b.bookedTime))[0]
+    ||
+    state.appointments
+    .filter(
+      (a) =>
+        a.doctorId === targetDoctorId &&
+        a.branchId === targetBranchId &&
+        a.date === targetDate &&
+        (a.status === 'BOOKED' || a.status === 'APPROACHING')
+    )
+    .sort((a, b) => timeToMinutes(a.bookedTime) - timeToMinutes(b.bookedTime))[0];
+
+  let nextPatient = null;
+  if (nextWaitingAppt) {
+    schedulingService.sendToDoctor(nextWaitingAppt.id);
+    const allChildren = state.parents.flatMap((p) => p.children);
+    const child = allChildren.find((c) => c.id === nextWaitingAppt.childId);
+    nextPatient = {
+      ...nextWaitingAppt,
+      childPermanentId: child?.permanentId || 'DM-SDCH-000101',
+      childAge: child?.ageYears,
+      childGender: child?.gender,
+    };
+  }
+
+  db.persistState();
+
+  res.json({
+    success: true,
+    message: 'Treatment marked completed. Next patient called into room.',
+    nextPatient,
   });
 });
 
