@@ -37,6 +37,7 @@ import {
   FileText,
   CheckCircle2,
   Phone,
+  Edit2,
 } from 'lucide-react';
 import { VaccineRemindersDesk } from './VaccineRemindersDesk.js';
 import { RegisterVaccineModal } from './RegisterVaccineModal.js';
@@ -49,6 +50,7 @@ interface ReceptionDashboardProps {
   config: SystemConfiguration;
   onLogout: () => void;
   onOpenAnalytics: () => void;
+  onConfigUpdate?: (newConfig: SystemConfiguration) => void;
 }
 
 export const ReceptionDashboard: React.FC<ReceptionDashboardProps> = ({
@@ -58,6 +60,7 @@ export const ReceptionDashboard: React.FC<ReceptionDashboardProps> = ({
   config,
   onLogout,
   onOpenAnalytics,
+  onConfigUpdate,
 }) => {
   const [selectedBranchId, setSelectedBranchId] = useState<BranchId>(receptionUser.branchId);
   const [selectedDoctorId, setSelectedDoctorId] = useState<string>('all');
@@ -97,11 +100,35 @@ export const ReceptionDashboard: React.FC<ReceptionDashboardProps> = ({
   const [foundParent, setFoundParent] = useState<any>(null);
   const [newParentName, setNewParentName] = useState('');
   const [newParentChild, setNewParentChild] = useState('');
+  const [newChildGender, setNewChildGender] = useState<'Boy' | 'Girl'>('Boy');
+  const [newChildAge, setNewChildAge] = useState<string>('');
+  const [newChildBloodGroup, setNewChildBloodGroup] = useState<string>('');
+  const [isAddingNewChildToFoundParent, setIsAddingNewChildToFoundParent] = useState<boolean>(false);
+  const [newChildForFoundParentName, setNewChildForFoundParentName] = useState<string>('');
+  const [searchingParent, setSearchingParent] = useState<boolean>(false);
+  const [parentSearchStatus, setParentSearchStatus] = useState<{ searched: boolean; found: boolean; message?: string }>({ searched: false, found: false });
   const [selectedChildId, setSelectedChildId] = useState('');
   const [phoneBookingDate, setPhoneBookingDate] = useState(config.simulatedDate);
   const [phoneBookingDoctor, setPhoneBookingDoctor] = useState('dr-subba-rao');
   const [phoneSlots, setPhoneSlots] = useState<any[]>([]);
   const [selectedPhoneSlot, setSelectedPhoneSlot] = useState('');
+
+  // Edit Appointment State (Allowed until patient was sent to doctor)
+  const [editingAppt, setEditingAppt] = useState<Appointment | null>(null);
+  const [editChildName, setEditChildName] = useState('');
+  const [editChildGender, setEditChildGender] = useState<'Boy' | 'Girl'>('Boy');
+  const [editChildAge, setEditChildAge] = useState('');
+  const [editBloodGroup, setEditBloodGroup] = useState('');
+  const [editParentName, setEditParentName] = useState('');
+  const [editParentMobile, setEditParentMobile] = useState('');
+  const [editBookedTime, setEditBookedTime] = useState('');
+  const [editHeightCm, setEditHeightCm] = useState('');
+  const [editWeightKg, setEditWeightKg] = useState('');
+  const [editTempF, setEditTempF] = useState('');
+  const [editPulseRate, setEditPulseRate] = useState('');
+  const [editIsEmergency, setEditIsEmergency] = useState(false);
+  const [editEmergencyReason, setEditEmergencyReason] = useState('');
+  const [savingEdit, setSavingEdit] = useState(false);
 
   // Emergency form state
   const [emergencyChildName, setEmergencyChildName] = useState('');
@@ -175,6 +202,18 @@ export const ReceptionDashboard: React.FC<ReceptionDashboardProps> = ({
       );
       const data = await res.json();
       setQueueData(data);
+      if (
+        onConfigUpdate &&
+        data &&
+        data.simulatedTime &&
+        (data.simulatedTime !== config.simulatedTime || (data.simulatedDate && data.simulatedDate !== config.simulatedDate))
+      ) {
+        onConfigUpdate({
+          ...config,
+          simulatedTime: data.simulatedTime,
+          simulatedDate: data.simulatedDate || config.simulatedDate,
+        });
+      }
     } catch (err) {
       console.error(err);
     } finally {
@@ -402,21 +441,41 @@ export const ReceptionDashboard: React.FC<ReceptionDashboardProps> = ({
   };
 
   // Telephone booking helpers
-  const handleSearchParent = async () => {
-    if (!parentMobileSearch.trim()) return;
+  const handleSearchParent = async (overrideMobile?: string) => {
+    const query = (overrideMobile !== undefined ? overrideMobile : parentMobileSearch).trim();
+    if (!query) return;
+    setSearchingParent(true);
     try {
-      const res = await fetch(`/api/parents/search?mobile=${parentMobileSearch.trim()}`);
+      const res = await fetch(`/api/parents/search?mobile=${encodeURIComponent(query)}`);
       const data = await res.json();
       if (res.ok && data.id) {
         setFoundParent(data);
-        if (data.children.length > 0) {
+        setIsAddingNewChildToFoundParent(false);
+        if (data.children && data.children.length > 0) {
           setSelectedChildId(data.children[0].id);
         }
+        setParentSearchStatus({
+          searched: true,
+          found: true,
+          message: `Existing parent profile found: ${data.name} (${data.children.length} registered child${data.children.length > 1 ? 'ren' : ''}).`,
+        });
       } else {
         setFoundParent(null);
+        setParentSearchStatus({
+          searched: true,
+          found: false,
+          message: `No existing parent found for "${query}". Fill in details below to create a new profile.`,
+        });
       }
     } catch (err) {
       setFoundParent(null);
+      setParentSearchStatus({
+        searched: true,
+        found: false,
+        message: 'Could not connect to parent search. You can enter details below.',
+      });
+    } finally {
+      setSearchingParent(false);
     }
   };
 
@@ -439,21 +498,58 @@ export const ReceptionDashboard: React.FC<ReceptionDashboardProps> = ({
     let childId = selectedChildId;
 
     try {
-      // If parent doesn't exist, create parent + child first
-      if (!foundParent) {
-        if (!newParentName || !parentMobileSearch || !newParentChild) return;
+      // If parent exists and adding new child
+      if (foundParent && isAddingNewChildToFoundParent) {
+        if (!newChildForFoundParentName.trim()) {
+          alert('Please enter child full name');
+          return;
+        }
+        const resChild = await fetch(`/api/parents/${foundParent.id}/children`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            name: newChildForFoundParentName.trim(),
+            gender: newChildGender,
+            ageYears: newChildAge ? Number(newChildAge) : undefined,
+            bloodGroup: newChildBloodGroup || undefined,
+          }),
+        });
+        const dataChild = await resChild.json();
+        if (!dataChild.success) {
+          alert('Failed to add new child to parent');
+          return;
+        }
+        childId = dataChild.child.id;
+      } else if (!foundParent) {
+        // If parent doesn't exist, create parent + child first
+        if (!newParentName || !parentMobileSearch || !newParentChild) {
+          alert('Please enter parent full name, mobile, and child name.');
+          return;
+        }
         const resP = await fetch('/api/parents', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
-            name: newParentName,
-            mobile: parentMobileSearch,
-            childName: newParentChild,
+            name: newParentName.trim(),
+            mobile: parentMobileSearch.trim(),
+            childName: newParentChild.trim(),
+            gender: newChildGender,
+            ageYears: newChildAge ? Number(newChildAge) : undefined,
+            bloodGroup: newChildBloodGroup || undefined,
           }),
         });
         const dataP = await resP.json();
+        if (!dataP.parent) {
+          alert('Failed to create parent profile');
+          return;
+        }
         parentId = dataP.parent.id;
         childId = dataP.parent.children[0].id;
+      }
+
+      if (!selectedPhoneSlot) {
+        alert('Please select an appointment time slot');
+        return;
       }
 
       const res = await fetch('/api/appointments', {
@@ -468,6 +564,9 @@ export const ReceptionDashboard: React.FC<ReceptionDashboardProps> = ({
           bookedTime: selectedPhoneSlot,
           bookingSource: 'RECEPTION_PHONE',
           advanceNoticePreferenceMinutes: 30,
+          childGender: newChildGender,
+          childAge: newChildAge ? Number(newChildAge) : undefined,
+          bloodGroup: newChildBloodGroup || undefined,
         }),
       });
 
@@ -478,12 +577,75 @@ export const ReceptionDashboard: React.FC<ReceptionDashboardProps> = ({
         setParentMobileSearch('');
         setFoundParent(null);
         setSelectedPhoneSlot('');
+        setNewParentName('');
+        setNewParentChild('');
+        setNewChildAge('');
+        setNewChildBloodGroup('');
+        setIsAddingNewChildToFoundParent(false);
+        setNewChildForFoundParentName('');
+        setParentSearchStatus({ searched: false, found: false });
         fetchLiveQueue();
       } else {
         showToast(data.message || 'Booking conflict');
       }
     } catch (err) {
       console.error(err);
+    }
+  };
+
+  const openEditModal = (appt: Appointment) => {
+    setEditingAppt(appt);
+    setEditChildName(appt.childName || '');
+    setEditChildGender(((appt as any).childGender as 'Boy' | 'Girl') || 'Boy');
+    setEditChildAge((appt as any).childAge !== undefined && (appt as any).childAge !== null ? String((appt as any).childAge) : '');
+    setEditBloodGroup((appt as any).bloodGroup || '');
+    setEditParentName(appt.parentName || '');
+    setEditParentMobile(appt.parentMobile || '');
+    setEditBookedTime(appt.bookedTime || '');
+    setEditHeightCm(appt.heightCm ? String(appt.heightCm) : '');
+    setEditWeightKg(appt.weightKg ? String(appt.weightKg) : '');
+    setEditTempF(appt.temperatureF ? String(appt.temperatureF) : '');
+    setEditPulseRate(appt.pulseRate ? String(appt.pulseRate) : '');
+    setEditIsEmergency(Boolean(appt.isEmergency));
+    setEditEmergencyReason(appt.emergencyReason || '');
+  };
+
+  const handleSaveEditAppointment = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!editingAppt) return;
+    setSavingEdit(true);
+    try {
+      const res = await fetch(`/api/appointments/${editingAppt.id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          childName: editChildName.trim(),
+          childGender: editChildGender,
+          childAge: editChildAge !== '' ? Number(editChildAge) : undefined,
+          bloodGroup: editBloodGroup.trim(),
+          parentName: editParentName.trim(),
+          parentMobile: editParentMobile.trim(),
+          bookedTime: editBookedTime.trim(),
+          heightCm: editHeightCm ? Number(editHeightCm) : undefined,
+          weightKg: editWeightKg ? Number(editWeightKg) : undefined,
+          temperatureF: editTempF ? Number(editTempF) : undefined,
+          pulseRate: editPulseRate ? Number(editPulseRate) : undefined,
+          isEmergency: editIsEmergency,
+          emergencyReason: editEmergencyReason.trim(),
+        }),
+      });
+      const data = await res.json();
+      if (res.ok && data.success) {
+        showToast('Appointment and patient details updated successfully!');
+        setEditingAppt(null);
+        fetchLiveQueue();
+      } else {
+        alert(data.message || 'Failed to update appointment');
+      }
+    } catch (err: any) {
+      alert('Error updating appointment: ' + err.message);
+    } finally {
+      setSavingEdit(false);
     }
   };
 
@@ -876,8 +1038,11 @@ export const ReceptionDashboard: React.FC<ReceptionDashboardProps> = ({
                   {nextPatient ? nextPatient.childName : 'No patients queued'}
                 </div>
                 {nextPatient && (
-                  <div className="text-[11px] text-sky-800">
-                    Booked: {nextPatient.bookedTime} • Expected: {nextPatient.expectedConsultationTime} ({nextPatient.status})
+                  <div className="text-[11px] flex items-center gap-2 pt-0.5">
+                    <span className="bg-amber-100 text-amber-900 border border-amber-300 px-2 py-0.5 rounded-md font-bold text-xs uppercase tracking-wide">
+                      Next in Queue
+                    </span>
+                    <span className="text-slate-600 font-mono text-[11px]">({nextPatient.status})</span>
                   </div>
                 )}
               </div>
@@ -1147,7 +1312,13 @@ export const ReceptionDashboard: React.FC<ReceptionDashboardProps> = ({
                     <div>
                       <span className="text-[10px] text-teal-700 block uppercase font-bold">Expected:</span>
                       <span className="font-mono font-bold text-teal-900 text-sm">
-                        {appt.expectedConsultationTime}
+                        {appt.isNextInQueue || appt.positionInQueue === 1 ? (
+                          <span className="bg-amber-100 text-amber-900 border border-amber-300 px-2 py-0.5 rounded-md font-bold text-xs uppercase tracking-wide">
+                            Next in Queue
+                          </span>
+                        ) : (
+                          appt.expectedConsultationTime
+                        )}
                       </span>
                     </div>
 
@@ -1200,6 +1371,19 @@ export const ReceptionDashboard: React.FC<ReceptionDashboardProps> = ({
                       >
                         <Unlock className="w-3.5 h-3.5" />
                         <span>Unblock</span>
+                      </button>
+                    )}
+
+                    {/* EDIT DETAILS BUTTON (Available until patient is sent to doctor) */}
+                    {!isWithDoctor && !isCompleted && !isNoShow && appt.status !== 'HOSPITAL_CANCELLED' && appt.status !== 'SLOT_RELEASED' && (
+                      <button
+                        id={`btn-edit-${appt.id}`}
+                        onClick={() => openEditModal(appt)}
+                        className="px-3 py-1.5 rounded-xl bg-white hover:bg-teal-50 text-slate-700 hover:text-teal-800 border border-slate-300 hover:border-teal-300 font-semibold text-xs flex items-center gap-1 shadow-2xs transition cursor-pointer"
+                        title="Edit patient, parent, or appointment details before consultation"
+                      >
+                        <Edit2 className="w-3.5 h-3.5 text-teal-600" />
+                        <span>Edit</span>
                       </button>
                     )}
 
@@ -1303,28 +1487,69 @@ export const ReceptionDashboard: React.FC<ReceptionDashboardProps> = ({
               {/* Step A: Search parent by mobile */}
               <div className="space-y-3 text-xs">
                 <div>
-                  <label className="block text-slate-700 font-semibold mb-1">Parent Mobile Number</label>
+                  <div className="flex items-center justify-between mb-1">
+                    <label className="text-slate-700 font-semibold">Parent Mobile Number</label>
+                    <span className="text-[11px] text-slate-400">Press Enter or click Search</span>
+                  </div>
                   <div className="flex gap-2">
                     <input
                       id="rec-phone-input-mobile"
                       type="tel"
-                      placeholder="e.g. 9000000001"
+                      placeholder="e.g. 9000000001 (10 digits)"
                       value={parentMobileSearch}
-                      onChange={(e) => setParentMobileSearch(e.target.value)}
-                      className="flex-1 px-3.5 py-2.5 rounded-xl border border-slate-300 text-xs focus:outline-none focus:border-teal-500"
+                      onChange={(e) => {
+                        const val = e.target.value;
+                        setParentMobileSearch(val);
+                        const digits = val.replace(/\D/g, '');
+                        if (digits.length === 10 && !searchingParent) {
+                          handleSearchParent(val);
+                        } else if (digits.length < 10 && parentSearchStatus.searched) {
+                          setParentSearchStatus({ searched: false, found: false });
+                        }
+                      }}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter') {
+                          e.preventDefault();
+                          handleSearchParent();
+                        }
+                      }}
+                      className="flex-1 px-3.5 py-2.5 rounded-xl border border-slate-300 text-xs focus:outline-none focus:border-teal-500 font-medium"
                     />
                     <button
-                      onClick={handleSearchParent}
-                      className="px-4 py-2.5 bg-slate-800 hover:bg-slate-900 text-white rounded-xl font-semibold flex items-center gap-1"
+                      type="button"
+                      onClick={() => handleSearchParent()}
+                      disabled={searchingParent || !parentMobileSearch.trim()}
+                      className="px-4 py-2.5 bg-slate-800 hover:bg-slate-900 disabled:bg-slate-400 text-white rounded-xl font-semibold flex items-center gap-1.5 transition cursor-pointer"
                     >
-                      <Search className="w-3.5 h-3.5" />
-                      <span>Search</span>
+                      {searchingParent ? (
+                        <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                      ) : (
+                        <Search className="w-3.5 h-3.5" />
+                      )}
+                      <span>{searchingParent ? 'Searching...' : 'Search'}</span>
                     </button>
                   </div>
+
+                  {parentSearchStatus.searched && (
+                    <div
+                      className={`mt-2 p-2.5 rounded-xl border text-xs flex items-start gap-2 ${
+                        parentSearchStatus.found
+                          ? 'bg-emerald-50 text-emerald-900 border-emerald-200'
+                          : 'bg-amber-50 text-amber-900 border-amber-200'
+                      }`}
+                    >
+                      {parentSearchStatus.found ? (
+                        <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0 mt-0.5" />
+                      ) : (
+                        <AlertTriangle className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
+                      )}
+                      <div>{parentSearchStatus.message}</div>
+                    </div>
+                  )}
                 </div>
 
                 {foundParent ? (
-                  <div className="p-3.5 rounded-2xl bg-teal-50 border border-teal-200 space-y-2">
+                  <div className="p-3.5 rounded-2xl bg-teal-50 border border-teal-200 space-y-3">
                     <div className="flex items-center justify-between">
                       <div className="font-bold text-teal-900">Existing Parent: {foundParent.name}</div>
                       {foundParent.isBlocked && (
@@ -1352,18 +1577,76 @@ export const ReceptionDashboard: React.FC<ReceptionDashboardProps> = ({
                       </div>
                     )}
 
-                    <label className="block text-slate-700 font-semibold">Select Child</label>
-                    <select
-                      value={selectedChildId}
-                      onChange={(e) => setSelectedChildId(e.target.value)}
-                      className="w-full px-3 py-2 rounded-xl bg-white border border-teal-300 text-xs"
-                    >
-                      {foundParent.children.map((c: any) => (
-                        <option key={c.id} value={c.id}>
-                          {c.name}
-                        </option>
-                      ))}
-                    </select>
+                    {!isAddingNewChildToFoundParent ? (
+                      <div className="space-y-2">
+                        <div className="flex items-center justify-between">
+                          <label className="block text-slate-700 font-semibold">Select Existing Child</label>
+                          <button
+                            type="button"
+                            onClick={() => setIsAddingNewChildToFoundParent(true)}
+                            className="text-teal-700 hover:underline font-bold text-[11px] flex items-center gap-0.5"
+                          >
+                            <Plus className="w-3 h-3" />
+                            <span>Add New Child</span>
+                          </button>
+                        </div>
+                        <select
+                          value={selectedChildId}
+                          onChange={(e) => setSelectedChildId(e.target.value)}
+                          className="w-full px-3 py-2 rounded-xl bg-white border border-teal-300 text-xs font-medium"
+                        >
+                          {foundParent.children.map((c: any) => (
+                            <option key={c.id} value={c.id}>
+                              {c.name} {typeof c.ageYears === 'number' ? `(${c.ageYears} Yrs)` : ''} {c.gender ? `• ${c.gender}` : ''}
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+                    ) : (
+                      <div className="p-3 bg-white rounded-xl border border-teal-200 space-y-2.5">
+                        <div className="flex items-center justify-between">
+                          <span className="font-bold text-teal-900 text-xs">New Child for {foundParent.name}</span>
+                          <button
+                            type="button"
+                            onClick={() => setIsAddingNewChildToFoundParent(false)}
+                            className="text-slate-500 hover:text-slate-800 text-[11px]"
+                          >
+                            Cancel
+                          </button>
+                        </div>
+                        <input
+                          type="text"
+                          placeholder="Child Full Name *"
+                          value={newChildForFoundParentName}
+                          onChange={(e) => setNewChildForFoundParentName(e.target.value)}
+                          className="w-full px-3 py-2 rounded-xl border border-slate-300 text-xs"
+                        />
+                        <div className="grid grid-cols-3 gap-2">
+                          <select
+                            value={newChildGender}
+                            onChange={(e) => setNewChildGender(e.target.value as any)}
+                            className="px-2.5 py-1.5 rounded-xl border border-slate-300 text-xs bg-white"
+                          >
+                            <option value="Boy">Boy</option>
+                            <option value="Girl">Girl</option>
+                          </select>
+                          <input
+                            type="number"
+                            placeholder="Age (Yrs)"
+                            value={newChildAge}
+                            onChange={(e) => setNewChildAge(e.target.value)}
+                            className="px-2.5 py-1.5 rounded-xl border border-slate-300 text-xs"
+                          />
+                          <input
+                            type="text"
+                            placeholder="Blood (e.g. B+)"
+                            value={newChildBloodGroup}
+                            onChange={(e) => setNewChildBloodGroup(e.target.value)}
+                            className="px-2.5 py-1.5 rounded-xl border border-slate-300 text-xs"
+                          />
+                        </div>
+                      </div>
+                    )}
                   </div>
                 ) : (
                   <div className="p-3.5 rounded-2xl bg-slate-50 border border-slate-200 space-y-3">
@@ -1371,17 +1654,41 @@ export const ReceptionDashboard: React.FC<ReceptionDashboardProps> = ({
                     <div className="grid grid-cols-2 gap-2">
                       <input
                         type="text"
-                        placeholder="Parent Full Name"
+                        placeholder="Parent Full Name *"
                         value={newParentName}
                         onChange={(e) => setNewParentName(e.target.value)}
                         className="px-3 py-2 rounded-xl bg-white border border-slate-300 text-xs"
                       />
                       <input
                         type="text"
-                        placeholder="Child Full Name"
+                        placeholder="Child Full Name *"
                         value={newParentChild}
                         onChange={(e) => setNewParentChild(e.target.value)}
                         className="px-3 py-2 rounded-xl bg-white border border-slate-300 text-xs"
+                      />
+                    </div>
+                    <div className="grid grid-cols-3 gap-2">
+                      <select
+                        value={newChildGender}
+                        onChange={(e) => setNewChildGender(e.target.value as any)}
+                        className="px-2.5 py-1.5 rounded-xl border border-slate-300 text-xs bg-white font-medium"
+                      >
+                        <option value="Boy">Boy</option>
+                        <option value="Girl">Girl</option>
+                      </select>
+                      <input
+                        type="number"
+                        placeholder="Child Age (Yrs)"
+                        value={newChildAge}
+                        onChange={(e) => setNewChildAge(e.target.value)}
+                        className="px-2.5 py-1.5 rounded-xl border border-slate-300 text-xs"
+                      />
+                      <input
+                        type="text"
+                        placeholder="Blood Group (optional)"
+                        value={newChildBloodGroup}
+                        onChange={(e) => setNewChildBloodGroup(e.target.value)}
+                        className="px-2.5 py-1.5 rounded-xl border border-slate-300 text-xs"
                       />
                     </div>
                   </div>
@@ -1996,6 +2303,224 @@ export const ReceptionDashboard: React.FC<ReceptionDashboardProps> = ({
                   Cancel
                 </button>
               </div>
+            </div>
+          </div>
+        )}
+
+        {/* Edit Patient & Appointment Details Modal (Available until patient is sent to doctor) */}
+        {editingAppt && (
+          <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4 overflow-y-auto">
+            <div className="bg-white rounded-3xl max-w-xl w-full p-6 sm:p-7 shadow-2xl border border-slate-200 my-8 space-y-5 animate-in fade-in zoom-in-95">
+              <div className="flex items-start justify-between border-b border-slate-200 pb-4">
+                <div>
+                  <div className="flex items-center gap-2">
+                    <h3 className="text-lg font-bold text-slate-900">Edit Patient &amp; Appointment</h3>
+                    <span className="text-[10px] font-mono bg-teal-50 text-teal-800 border border-teal-200 px-2 py-0.5 rounded-full font-bold">
+                      Token #{editingAppt.appointmentNumber}
+                    </span>
+                  </div>
+                  <p className="text-xs text-slate-500 mt-0.5">
+                    Modifications are permitted before patient enters consultation room.
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setEditingAppt(null)}
+                  className="text-slate-400 hover:text-slate-600 p-1.5 rounded-full hover:bg-slate-100 cursor-pointer"
+                >
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
+
+              <form onSubmit={handleSaveEditAppointment} className="space-y-4 text-xs">
+                {/* Section 1: Patient / Child Details */}
+                <div className="bg-slate-50 p-3.5 rounded-2xl border border-slate-200 space-y-3">
+                  <div className="font-bold text-slate-800 flex items-center gap-1.5">
+                    <User className="w-3.5 h-3.5 text-teal-600" />
+                    <span>Child / Patient Information</span>
+                  </div>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    <div>
+                      <label className="block text-slate-600 font-semibold mb-1">Child Name *</label>
+                      <input
+                        type="text"
+                        required
+                        value={editChildName}
+                        onChange={(e) => setEditChildName(e.target.value)}
+                        className="w-full px-3 py-2 rounded-xl bg-white border border-slate-300 text-xs font-medium"
+                      />
+                    </div>
+                    <div className="grid grid-cols-3 gap-2">
+                      <div>
+                        <label className="block text-slate-600 font-semibold mb-1">Gender</label>
+                        <select
+                          value={editChildGender}
+                          onChange={(e) => setEditChildGender(e.target.value as any)}
+                          className="w-full px-2 py-2 rounded-xl bg-white border border-slate-300 text-xs font-medium"
+                        >
+                          <option value="Boy">Boy</option>
+                          <option value="Girl">Girl</option>
+                        </select>
+                      </div>
+                      <div>
+                        <label className="block text-slate-600 font-semibold mb-1">Age (Yrs)</label>
+                        <input
+                          type="number"
+                          placeholder="Age"
+                          value={editChildAge}
+                          onChange={(e) => setEditChildAge(e.target.value)}
+                          className="w-full px-2 py-2 rounded-xl bg-white border border-slate-300 text-xs font-medium"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-slate-600 font-semibold mb-1">Blood</label>
+                        <input
+                          type="text"
+                          placeholder="e.g. B+"
+                          value={editBloodGroup}
+                          onChange={(e) => setEditBloodGroup(e.target.value)}
+                          className="w-full px-2 py-2 rounded-xl bg-white border border-slate-300 text-xs font-medium"
+                        />
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Section 2: Parent Information */}
+                <div className="bg-slate-50 p-3.5 rounded-2xl border border-slate-200 space-y-3">
+                  <div className="font-bold text-slate-800 flex items-center gap-1.5">
+                    <Users className="w-3.5 h-3.5 text-teal-600" />
+                    <span>Parent / Guardian Information</span>
+                  </div>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    <div>
+                      <label className="block text-slate-600 font-semibold mb-1">Parent Name *</label>
+                      <input
+                        type="text"
+                        required
+                        value={editParentName}
+                        onChange={(e) => setEditParentName(e.target.value)}
+                        className="w-full px-3 py-2 rounded-xl bg-white border border-slate-300 text-xs font-medium"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-slate-600 font-semibold mb-1">Mobile Number (10 digits) *</label>
+                      <input
+                        type="tel"
+                        required
+                        value={editParentMobile}
+                        onChange={(e) => setEditParentMobile(e.target.value)}
+                        className="w-full px-3 py-2 rounded-xl bg-white border border-slate-300 text-xs font-medium"
+                      />
+                    </div>
+                  </div>
+                </div>
+
+                {/* Section 3: Time Slot & Triage Vitals */}
+                <div className="bg-slate-50 p-3.5 rounded-2xl border border-slate-200 space-y-3">
+                  <div className="font-bold text-slate-800 flex items-center gap-1.5">
+                    <Activity className="w-3.5 h-3.5 text-teal-600" />
+                    <span>Schedule &amp; Triage Vitals (Optional)</span>
+                  </div>
+                  <div className="grid grid-cols-2 sm:grid-cols-5 gap-2">
+                    <div>
+                      <label className="block text-[11px] text-slate-600 font-medium mb-1">Time Slot</label>
+                      <input
+                        type="text"
+                        placeholder="HH:MM"
+                        value={editBookedTime}
+                        onChange={(e) => setEditBookedTime(e.target.value)}
+                        className="w-full px-2.5 py-1.5 rounded-xl bg-white border border-slate-300 text-xs"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-[11px] text-slate-600 font-medium mb-1">Height (cm)</label>
+                      <input
+                        type="number"
+                        placeholder="cm"
+                        value={editHeightCm}
+                        onChange={(e) => setEditHeightCm(e.target.value)}
+                        className="w-full px-2.5 py-1.5 rounded-xl bg-white border border-slate-300 text-xs"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-[11px] text-slate-600 font-medium mb-1">Weight (kg)</label>
+                      <input
+                        type="number"
+                        step="0.1"
+                        placeholder="kg"
+                        value={editWeightKg}
+                        onChange={(e) => setEditWeightKg(e.target.value)}
+                        className="w-full px-2.5 py-1.5 rounded-xl bg-white border border-slate-300 text-xs"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-[11px] text-slate-600 font-medium mb-1">Temp (°F)</label>
+                      <input
+                        type="number"
+                        step="0.1"
+                        placeholder="°F"
+                        value={editTempF}
+                        onChange={(e) => setEditTempF(e.target.value)}
+                        className="w-full px-2.5 py-1.5 rounded-xl bg-white border border-slate-300 text-xs"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-[11px] text-slate-600 font-medium mb-1">Pulse (bpm)</label>
+                      <input
+                        type="number"
+                        placeholder="bpm"
+                        value={editPulseRate}
+                        onChange={(e) => setEditPulseRate(e.target.value)}
+                        className="w-full px-2.5 py-1.5 rounded-xl bg-white border border-slate-300 text-xs"
+                      />
+                    </div>
+                  </div>
+
+                  {/* Priority / Emergency Toggle */}
+                  <div className="pt-2 border-t border-slate-200 flex items-center justify-between">
+                    <label className="flex items-center gap-2 cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={editIsEmergency}
+                        onChange={(e) => setEditIsEmergency(e.target.checked)}
+                        className="rounded text-rose-600 focus:ring-rose-500 w-4 h-4"
+                      />
+                      <span className="font-bold text-rose-700 text-xs flex items-center gap-1">
+                        <Zap className="w-3.5 h-3.5" /> Mark as Emergency Priority
+                      </span>
+                    </label>
+                    {editIsEmergency && (
+                      <input
+                        type="text"
+                        placeholder="Emergency reason"
+                        value={editEmergencyReason}
+                        onChange={(e) => setEditEmergencyReason(e.target.value)}
+                        className="px-2.5 py-1 rounded-xl bg-white border border-rose-300 text-xs text-rose-900 w-1/2"
+                      />
+                    )}
+                  </div>
+                </div>
+
+                <div className="pt-2 flex items-center justify-end gap-2.5">
+                  <button
+                    type="button"
+                    onClick={() => setEditingAppt(null)}
+                    disabled={savingEdit}
+                    className="px-4 py-2 rounded-xl text-slate-600 hover:bg-slate-100 text-xs font-semibold cursor-pointer"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="submit"
+                    disabled={savingEdit}
+                    className="px-5 py-2.5 rounded-xl bg-teal-600 hover:bg-teal-700 disabled:bg-teal-400 text-white font-bold text-xs shadow-md transition flex items-center gap-1.5 cursor-pointer"
+                  >
+                    {savingEdit && <RefreshCw className="w-3.5 h-3.5 animate-spin" />}
+                    <span>{savingEdit ? 'Saving Changes...' : 'Save Changes'}</span>
+                  </button>
+                </div>
+              </form>
             </div>
           </div>
         )}

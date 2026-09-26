@@ -33,6 +33,7 @@ import { ChildHealthDashboardModal } from './ChildHealthDashboardModal.js';
 
 interface ParentDashboardProps {
   parentUser: Parent;
+  parentToken?: string | null;
   config: SystemConfiguration;
   onOpenBookAppointment: () => void;
   onRescheduleAppointment: (appointment: Appointment) => void;
@@ -42,6 +43,7 @@ interface ParentDashboardProps {
 
 export const ParentDashboard: React.FC<ParentDashboardProps> = ({
   parentUser,
+  parentToken,
   config,
   onOpenBookAppointment,
   onRescheduleAppointment,
@@ -508,7 +510,7 @@ export const ParentDashboard: React.FC<ParentDashboardProps> = ({
                       {child.permanentId || 'DM-SDCH-000101'}
                     </span>
                     <span className="text-[11px] text-slate-500 font-medium">
-                      {child.gender || 'Child'}, {child.ageYears || 3} Yrs
+                      {child.gender || 'Child'}{typeof child.ageYears === 'number' && child.ageYears >= 0 ? `, ${child.ageYears} Yrs` : ''}
                     </span>
                   </div>
                 </div>
@@ -682,6 +684,7 @@ export const ParentDashboard: React.FC<ParentDashboardProps> = ({
             isOpen={Boolean(viewingEmrChildId)}
             onClose={() => setViewingEmrChildId(null)}
             childId={viewingEmrChildId}
+            parentToken={parentToken}
             onRefresh={fetchParentAppointments}
           />
         )}

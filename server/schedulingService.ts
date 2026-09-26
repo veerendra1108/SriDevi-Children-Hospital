@@ -38,7 +38,7 @@ export class SchedulingService {
         branchId,
         date,
         scheduledStart: doctorSchedule?.startTime || '10:00',
-        actualStart: doctorSchedule?.startTime || '10:00',
+        actualStart: undefined,
         status: 'IN_SESSION',
         currentDelayMinutes: 0,
         avgConsultationDurationMinutes: doctorSchedule?.slotDurationMinutes || 15,
@@ -90,75 +90,127 @@ export class SchedulingService {
 
     if (dayAppointments.length === 0) return;
 
-    // Calculate current running delay
-    let currentDelay = session.currentDelayMinutes;
+    const isToday = date === state.config.simulatedDate;
+    const isFuture = date > state.config.simulatedDate;
+    const scheduledStartMin = timeToMinutes(session.scheduledStart || '10:00');
+    const simulatedNowMin = isToday ? timeToMinutes(state.config.simulatedTime) : scheduledStartMin;
+    const expectedDuration = state.config.slotDurationMinutes || 15;
 
-    // If currently with doctor, calculate elapsed time
+    // Active appointment with doctor
     const currentActiveAppt = dayAppointments.find((a) => a.status === 'WITH_DOCTOR');
+    let doctorAvailableMin = scheduledStartMin;
+
     if (currentActiveAppt && currentActiveAppt.consultationStartTime) {
       const startMin = timeToMinutes(currentActiveAppt.consultationStartTime);
-      const simulatedNowMin = timeToMinutes(state.config.simulatedTime);
-      const elapsed = simulatedNowMin - startMin;
-      const expectedDuration = state.config.slotDurationMinutes;
+      const elapsed = Math.max(0, simulatedNowMin - startMin);
       if (elapsed > expectedDuration) {
-        // Additional over-run delay
-        currentDelay = Math.max(currentDelay, elapsed - expectedDuration + 5);
+        // Active consultation has overrun its expected duration (no arbitrary +5 inflation)
+        const overrun = elapsed - expectedDuration;
+        session.currentDelayMinutes = Math.max(session.currentDelayMinutes, overrun);
+        doctorAvailableMin = simulatedNowMin;
+      } else {
+        doctorAvailableMin = Math.max(simulatedNowMin, startMin + expectedDuration);
+      }
+    } else {
+      // Doctor has no active consultation
+      if (isFuture) {
+        // Future date queue: doctor starts at scheduled start plus any session delay
+        doctorAvailableMin = scheduledStartMin + (session.currentDelayMinutes || 0);
+      } else if (!session.actualStart) {
+        // Doctor has not started consultations today yet
+        const delay = session.currentDelayMinutes || 0;
+        doctorAvailableMin = Math.max(simulatedNowMin, scheduledStartMin + delay);
+      } else {
+        // Doctor has already started today and is currently free between consultations
+        doctorAvailableMin = simulatedNowMin;
+        const nextDueAppt = dayAppointments.find(
+          (a) =>
+            a.status === 'WAITING' ||
+            a.status === 'ARRIVED' ||
+            a.status === 'BOOKED' ||
+            a.status === 'APPROACHING'
+        );
+        if (!nextDueAppt) {
+          session.currentDelayMinutes = 0;
+        } else if (doctorAvailableMin <= timeToMinutes(nextDueAppt.bookedTime)) {
+          session.currentDelayMinutes = 0;
+        }
       }
     }
 
-    session.currentDelayMinutes = currentDelay;
-
-    // Count waiting/ahead
+    // Count waiting/ahead & project queue sequentially
     let waitingAheadCounter = 0;
     const isDoctorBusy = !!currentActiveAppt;
+    let nextSlotStartMin = doctorAvailableMin;
 
-    // Rolling ETA calculation
-    dayAppointments.forEach((appt, index) => {
-      // Completed appointments keep their actual times
-      if (appt.status === 'COMPLETED') {
-        return;
+    dayAppointments.forEach((appt) => {
+      // Inactive appointments do NOT consume slot capacity
+      if (
+        appt.status === 'COMPLETED' ||
+        appt.status === 'NO_SHOW' ||
+        appt.status === 'SLOT_RELEASED' ||
+        appt.status === 'RESCHEDULED' ||
+        appt.status === 'HOSPITAL_CANCELLED'
+      ) {
+        appt.childrenAhead = undefined;
+        appt.positionInQueue = undefined;
+        appt.isNextInQueue = false;
+        return; // Early return without advancing nextSlotStartMin
       }
 
       if (appt.status === 'WITH_DOCTOR') {
         appt.childrenAhead = 0;
         appt.positionInQueue = 0;
+        appt.isNextInQueue = false;
         return;
       }
 
       const bookedMin = timeToMinutes(appt.bookedTime);
-      const nowMin = timeToMinutes(state.config.simulatedTime);
 
-      // Decay factor for delay: near appointments feel 100% delay, appointments 2 hours out absorb delay
-      const timeDistance = Math.max(0, bookedMin - nowMin);
-      let effectiveDelay = currentDelay;
-      if (timeDistance > 60) {
-        // After 60 minutes, delay reduces linearly
-        const decay = Math.min(1, (timeDistance - 60) / 120);
-        effectiveDelay = Math.round(currentDelay * (1 - decay * 0.7));
+      // Earliest possible start:
+      // 1) On today's queue: cannot start in the past (>= simulatedNowMin)
+      // 2) On future queues: not bounded by today's simulated clock
+      // 3) Cannot start before booked time (scheduled slot)
+      // 4) Cannot start before doctor availability / previous patient completion
+      let expectedStartMin: number;
+      if (isToday) {
+        expectedStartMin = Math.max(simulatedNowMin, bookedMin, nextSlotStartMin);
+      } else {
+        expectedStartMin = Math.max(bookedMin, nextSlotStartMin);
       }
 
-      const expectedMin = bookedMin + effectiveDelay;
-      appt.expectedConsultationTime = minutesToTime(expectedMin);
+      // Chain doctor availability for subsequent patients
+      nextSlotStartMin = expectedStartMin + expectedDuration;
+
+      appt.expectedConsultationTime = minutesToTime(expectedStartMin);
 
       // Recommended arrival is 15 minutes before expected consultation
-      const recommendedArrivalMin = Math.max(0, expectedMin - state.config.arrivalBeforeAppointmentMinutes);
+      const recommendedArrivalMin = Math.max(0, expectedStartMin - state.config.arrivalBeforeAppointmentMinutes);
       appt.recommendedArrivalTime = minutesToTime(recommendedArrivalMin);
 
       // Queue position
-      if (appt.status === 'WAITING' || appt.status === 'ARRIVED' || appt.status === 'BOOKED' || appt.status === 'APPROACHING') {
+      if (
+        appt.status === 'WAITING' ||
+        appt.status === 'ARRIVED' ||
+        appt.status === 'BOOKED' ||
+        appt.status === 'APPROACHING'
+      ) {
         appt.positionInQueue = waitingAheadCounter + 1;
         appt.childrenAhead = (isDoctorBusy ? 1 : 0) + waitingAheadCounter;
+        appt.isNextInQueue = appt.positionInQueue === 1;
         waitingAheadCounter++;
       } else {
         appt.childrenAhead = undefined;
+        appt.isNextInQueue = false;
       }
 
       // Delay status explanation
+      const effectiveDelay = Math.max(0, expectedStartMin - bookedMin);
       if (effectiveDelay > 20) {
         appt.delayExplanation = `Doctor running approximately ${effectiveDelay} minutes late due to critical patient stabilization.`;
       } else if (effectiveDelay > 5) {
         appt.delayExplanation = `Doctor running approximately ${effectiveDelay} minutes behind schedule.`;
-      } else if (effectiveDelay < -5) {
+      } else if (expectedStartMin < bookedMin) {
         appt.delayExplanation = `Doctor is running slightly ahead of schedule. Early consultation may be possible if you arrive.`;
       } else {
         appt.delayExplanation = `Doctor running approximately on time.`;
@@ -507,14 +559,17 @@ export class SchedulingService {
       }
     }
 
-    appt.status = 'WITH_DOCTOR';
-    appt.consultationStartTime = state.config.simulatedTime;
-    appt.history.push({
-      timestamp: `${state.config.simulatedDate} ${state.config.simulatedTime}`,
-      status: 'WITH_DOCTOR',
-      note: 'Consultation initiated with pediatrician',
-    });
-    appt.updatedAt = new Date().toISOString();
+    // QT-D01: Only initialize consultationStartTime and history on initial start; do not overwrite during polling
+    if (appt.status !== 'WITH_DOCTOR' || !appt.consultationStartTime) {
+      appt.status = 'WITH_DOCTOR';
+      appt.consultationStartTime = state.config.simulatedTime;
+      appt.history.push({
+        timestamp: `${state.config.simulatedDate} ${state.config.simulatedTime}`,
+        status: 'WITH_DOCTOR',
+        note: 'Consultation initiated with pediatrician',
+      });
+      appt.updatedAt = new Date().toISOString();
+    }
 
     this.recalculateSessionQueue(appt.doctorId, appt.branchId, appt.date);
     db.persistState();
@@ -531,6 +586,7 @@ export class SchedulingService {
 
     appt.status = 'COMPLETED';
     appt.consultationEndTime = state.config.simulatedTime;
+    const expectedSlotDuration = state.config.slotDurationMinutes || 15;
     if (appt.consultationStartTime) {
       appt.consultationDurationMinutes = Math.max(
         5,
@@ -556,8 +612,15 @@ export class SchedulingService {
     const session = state.sessions.find(
       (s) => s.doctorId === appt.doctorId && s.branchId === appt.branchId && s.date === appt.date
     );
-    if (session && session.currentAppointmentId === appt.id) {
-      session.currentAppointmentId = undefined;
+    if (session) {
+      if (session.currentAppointmentId === appt.id) {
+        session.currentAppointmentId = undefined;
+      }
+      // QT-D02: Recover delay when consultation completes early compared to expected slot allocation
+      if (appt.consultationDurationMinutes < expectedSlotDuration && session.currentDelayMinutes > 0) {
+        const savedMinutes = expectedSlotDuration - appt.consultationDurationMinutes;
+        session.currentDelayMinutes = Math.max(0, session.currentDelayMinutes - savedMinutes);
+      }
     }
 
     this.recalculateSessionQueue(appt.doctorId, appt.branchId, appt.date);

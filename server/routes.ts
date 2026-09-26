@@ -23,6 +23,8 @@ import {
   TIMING_TRANSLATIONS,
   FORM_TRANSLATIONS,
 } from './pediatricEmrService.js';
+import { PEDIATRIC_DIAGNOSES, PediatricDiagnosis } from '../src/data/pediatricDiagnoses.js';
+import { ensureComprehensiveDemoData } from './demoSeedData.js';
 
 export const apiRouter = Router();
 
@@ -46,7 +48,24 @@ apiRouter.get('/schedules', (req, res) => {
   res.json(state.schedules);
 });
 
-// Parent login (Mobile + Password)
+// Helper to generate unique hospital permanent child ID (e.g. DM-SDCH-000110)
+function generatePermanentChildId(state: any): string {
+  const allChildren = (state.parents || []).flatMap((p: any) => p.children || []);
+  let maxId = 100;
+  for (const c of allChildren) {
+    if (c.permanentId) {
+      const match = String(c.permanentId).match(/DM-SDCH-(\d+)/);
+      if (match) {
+        const num = parseInt(match[1], 10);
+        if (num > maxId) maxId = num;
+      }
+    }
+  }
+  const nextNum = maxId + 1;
+  return `DM-SDCH-${String(nextNum).padStart(6, '0')}`;
+}
+
+// Parent login (Mobile + Password) - Issues authenticated parent session token
 apiRouter.post('/auth/parent-login', (req, res) => {
   const { mobile, password } = req.body;
   const state = db.getState();
@@ -62,10 +81,32 @@ apiRouter.post('/auth/parent-login', (req, res) => {
     return res.status(401).json({ success: false, message: 'Incorrect password. (Test password is: Test@123)' });
   }
 
+  // Generate secure parent session token
+  const token = `parent_tok_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`;
+  const expiresAt = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString();
+
+  if (!state.parentSessionsAuth) {
+    state.parentSessionsAuth = [];
+  }
+  state.parentSessionsAuth.push({ token, parentId: parent.id, expiresAt });
+  db.persistState();
+
   return res.json({
     success: true,
+    token,
     parent,
   });
+});
+
+// Parent logout
+apiRouter.post('/auth/parent-logout', (req, res) => {
+  const token = req.headers['x-parent-token'] || req.body?.token;
+  if (token && db.getState().parentSessionsAuth) {
+    db.updateState((draft) => {
+      draft.parentSessionsAuth = (draft.parentSessionsAuth || []).filter((s) => s.token !== token);
+    });
+  }
+  res.json({ success: true, message: 'Parent logged out successfully.' });
 });
 
 // Reception login (Username + Password)
@@ -300,11 +341,15 @@ apiRouter.post('/appointments', (req, res) => {
     if (!child) {
       child = {
         id: `c-${Date.now()}-${Math.random().toString(36).substr(2, 4)}`,
+        permanentId: generatePermanentChildId(state),
         parentId: parent.id,
         name: trimmedChild,
-        gender: 'Boy',
+        gender: req.body.childGender || 'Boy',
+        hospitalId: 'sdch',
       };
       parent.children.push(child);
+    } else if (!child.permanentId) {
+      child.permanentId = generatePermanentChildId(state);
     }
     effectiveChildId = child.id;
   } else if (effectiveParentId && !effectiveChildId && childName) {
@@ -315,11 +360,15 @@ apiRouter.post('/appointments', (req, res) => {
       if (!child) {
         child = {
           id: `c-${Date.now()}-${Math.random().toString(36).substr(2, 4)}`,
+          permanentId: generatePermanentChildId(state),
           parentId: parent.id,
           name: trimmedChild,
-          gender: 'Boy',
+          gender: req.body.childGender || 'Boy',
+          hospitalId: 'sdch',
         };
         parent.children.push(child);
+      } else if (!child.permanentId) {
+        child.permanentId = generatePermanentChildId(state);
       }
       effectiveChildId = child.id;
     }
@@ -369,6 +418,98 @@ apiRouter.put('/appointments/:id/reschedule', (req, res) => {
   res.json(result);
 });
 
+// Update appointment details (Available until patient is sent to doctor)
+apiRouter.put('/appointments/:id', (req, res) => {
+  const { id } = req.params;
+  const {
+    childName,
+    childGender,
+    childAge,
+    bloodGroup,
+    parentName,
+    parentMobile,
+    bookedTime,
+    date,
+    doctorId,
+    branchId,
+    heightCm,
+    weightKg,
+    temperatureF,
+    pulseRate,
+    isEmergency,
+    emergencyReason,
+  } = req.body;
+
+  const state = db.getState();
+  const appt = state.appointments.find((a) => a.id === id);
+  if (!appt) {
+    return res.status(404).json({ success: false, message: 'Appointment not found.' });
+  }
+
+  // Enforce rule: cannot edit once patient has entered consultation with doctor
+  if (appt.status === 'WITH_DOCTOR' || appt.status === 'COMPLETED') {
+    return res.status(400).json({
+      success: false,
+      message: 'Cannot edit appointment details after patient has entered consultation with doctor.',
+    });
+  }
+
+  // Update appointment fields
+  if (childName) appt.childName = String(childName).trim();
+  if (childGender) (appt as any).childGender = childGender;
+  if (childAge !== undefined && !isNaN(Number(childAge))) (appt as any).childAge = Number(childAge);
+  if (bloodGroup !== undefined) (appt as any).bloodGroup = bloodGroup;
+  if (parentName) appt.parentName = String(parentName).trim();
+  if (parentMobile) appt.parentMobile = String(parentMobile).trim();
+  if (bookedTime) appt.bookedTime = String(bookedTime).trim();
+  if (date) appt.date = String(date).trim();
+  if (doctorId) appt.doctorId = String(doctorId).trim();
+  if (branchId) appt.branchId = branchId;
+
+  // Update triage vitals if provided
+  if (heightCm !== undefined && !isNaN(Number(heightCm))) appt.heightCm = Number(heightCm);
+  if (weightKg !== undefined && !isNaN(Number(weightKg))) appt.weightKg = Number(weightKg);
+  if (temperatureF !== undefined && !isNaN(Number(temperatureF))) appt.temperatureF = Number(temperatureF);
+  if (pulseRate !== undefined && !isNaN(Number(pulseRate))) appt.pulseRate = Number(pulseRate);
+
+  if (appt.heightCm && appt.weightKg) {
+    const hM = appt.heightCm / 100;
+    appt.pediatricBmi = Number((appt.weightKg / (hM * hM)).toFixed(1));
+  }
+
+  if (isEmergency !== undefined) appt.isEmergency = Boolean(isEmergency);
+  if (emergencyReason !== undefined) appt.emergencyReason = String(emergencyReason).trim();
+
+  // Update corresponding Parent & Child records
+  const parent = state.parents.find((p) => p.id === appt.parentId);
+  if (parent) {
+    if (parentName) parent.name = String(parentName).trim();
+    if (parentMobile) parent.mobile = String(parentMobile).trim();
+    const child = parent.children.find((c) => c.id === appt.childId);
+    if (child) {
+      if (childName) child.name = String(childName).trim();
+      if (childGender) child.gender = childGender;
+      if (childAge !== undefined && !isNaN(Number(childAge))) child.ageYears = Number(childAge);
+      if (bloodGroup !== undefined) child.bloodGroup = bloodGroup;
+    }
+  }
+
+  appt.history.push({
+    timestamp: `${state.config.simulatedDate} ${state.config.simulatedTime}`,
+    status: appt.status,
+    note: 'Receptionist edited patient/appointment details',
+  });
+
+  schedulingService.recalculateSessionQueue(appt.doctorId, appt.branchId, appt.date);
+  db.persistState();
+
+  res.json({
+    success: true,
+    message: 'Appointment details updated successfully',
+    appointment: appt,
+  });
+});
+
 // --- PARENTS & CHILDREN MANAGEMENT ---
 
 apiRouter.get('/parents', (_req, res) => {
@@ -377,11 +518,22 @@ apiRouter.get('/parents', (_req, res) => {
 });
 
 apiRouter.get('/parents/search', (req, res) => {
-  const { mobile } = req.query;
+  const { mobile, q } = req.query;
   const state = db.getState();
-  const parent = state.parents.find((p) => p.mobile === String(mobile || '').trim());
+  const rawQuery = String(mobile || q || '').trim();
+  const cleanDigits = rawQuery.replace(/\D/g, '');
+
+  const parent = state.parents.find((p) => {
+    const pDigits = p.mobile.replace(/\D/g, '');
+    if (cleanDigits.length >= 10 && pDigits.endsWith(cleanDigits.slice(-10))) return true;
+    if (cleanDigits.length > 0 && pDigits === cleanDigits) return true;
+    if (p.mobile === rawQuery) return true;
+    if (rawQuery.length >= 3 && p.name.toLowerCase().includes(rawQuery.toLowerCase())) return true;
+    return false;
+  });
+
   if (!parent) {
-    return res.status(404).json({ message: 'Parent not found' });
+    return res.status(404).json({ success: false, message: 'Parent not found' });
   }
   res.json(parent);
 });
@@ -428,25 +580,30 @@ apiRouter.post('/parents', (req, res) => {
     if (childName) {
       const newChild = {
         id: `c-${Date.now()}`,
+        permanentId: generatePermanentChildId(state),
         parentId: parent.id,
         name: childName.trim(),
         gender: gender || 'Boy',
         ageYears: ageYears ? Number(ageYears) : undefined,
+        hospitalId: 'sdch',
       };
       parent.children.push(newChild);
     }
   } else {
+    const pId = `p-${Date.now()}`;
     parent = {
-      id: `p-${Date.now()}`,
+      id: pId,
       name: name.trim(),
       mobile: trimmedMobile,
       children: [
         {
           id: `c-${Date.now()}`,
-          parentId: `p-${Date.now()}`,
+          permanentId: generatePermanentChildId(state),
+          parentId: pId,
           name: childName ? childName.trim() : 'Child',
           gender: gender || 'Boy',
           ageYears: ageYears ? Number(ageYears) : undefined,
+          hospitalId: 'sdch',
         },
       ],
     };
@@ -459,17 +616,20 @@ apiRouter.post('/parents', (req, res) => {
 });
 
 apiRouter.post('/parents/:id/children', (req, res) => {
-  const { name, gender, ageYears } = req.body;
+  const { name, gender, ageYears, bloodGroup } = req.body;
   const state = db.getState();
   const parent = state.parents.find((p) => p.id === req.params.id);
   if (!parent) return res.status(404).json({ error: 'Parent not found' });
 
   const newChild = {
     id: `c-${Date.now()}`,
+    permanentId: generatePermanentChildId(state),
     parentId: parent.id,
     name: name.trim(),
     gender: gender || 'Boy',
-    ageYears: ageYears ? Number(ageYears) : undefined,
+    ageYears: ageYears !== undefined && !isNaN(Number(ageYears)) ? Number(ageYears) : undefined,
+    bloodGroup: bloodGroup || undefined,
+    hospitalId: 'sdch',
   };
   parent.children.push(newChild);
   db.persistState();
@@ -509,9 +669,17 @@ apiRouter.post('/reception/check-in', (req, res) => {
 
         // Find child for growth entry
         const child = state.parents.flatMap((p) => p.children).find((c) => c.id === appt.childId);
+        let childAge = child?.ageYears;
+        if (childAge === undefined && child?.dateOfBirth) {
+          const birthYear = new Date(child.dateOfBirth).getFullYear();
+          const simYear = new Date(state.config.simulatedDate).getFullYear();
+          if (!isNaN(birthYear) && !isNaN(simYear)) {
+            childAge = Math.max(0, simYear - birthYear);
+          }
+        }
         const growth = calculatePediatricGrowth({
           childId: appt.childId,
-          ageYears: child?.ageYears || 3,
+          ageYears: typeof childAge === 'number' && !isNaN(childAge) && childAge >= 0 ? childAge : undefined,
           heightCm: Number(heightCm),
           weightKg: Number(weightKg),
           recordedByRole: 'RECEPTIONIST',
@@ -616,6 +784,7 @@ apiRouter.post('/reception/cancel-session', (req, res) => {
 apiRouter.get('/queue/live', (req, res) => {
   const { doctorId, branchId, date } = req.query;
   const state = db.getState();
+  ensureComprehensiveDemoData(state);
   const isAllDates = date === 'all';
   const targetDate = isAllDates ? '' : String(date || state.config.simulatedDate);
   const isAllDoctors = !doctorId || doctorId === 'all';
@@ -885,6 +1054,7 @@ apiRouter.post('/simulation/set-date', (req, res) => {
   const state = db.getState();
   if (date) {
     state.config.simulatedDate = String(date);
+    ensureComprehensiveDemoData(state);
     schedulingService.ensureDoctorSessionsForDate(String(date));
     state.sessions.forEach((s) => {
       schedulingService.recalculateSessionQueue(s.doctorId, s.branchId, s.date);
@@ -900,10 +1070,10 @@ apiRouter.put('/config', (req, res) => {
   Object.assign(state.config, req.body);
   if (req.body.simulatedDate) {
     schedulingService.ensureDoctorSessionsForDate(String(req.body.simulatedDate));
-    state.sessions.forEach((s) => {
-      schedulingService.recalculateSessionQueue(s.doctorId, s.branchId, s.date);
-    });
   }
+  state.sessions.forEach((s) => {
+    schedulingService.recalculateSessionQueue(s.doctorId, s.branchId, s.date);
+  });
   db.persistState();
   res.json({ success: true, config: state.config });
 });
@@ -1060,16 +1230,78 @@ apiRouter.post('/vaccinations/reception/call-log', (req, res) => {
 // --- PEDIATRIC EMR & CLINICAL ENDPOINTS ---
 // ==========================================
 
-// Helper: authenticate doctor token
+// Helper: authenticate doctor token with strict session & expiration check (no arbitrary token bypass)
 function getDoctorAuth(req: any) {
   const token = req.headers['x-doctor-token'] || req.query.token;
   if (!token) return null;
   const state = db.getState();
-  const session = state.doctorSessionsAuth?.find((s) => s.token === token);
+  if (!state.doctorSessionsAuth) {
+    state.doctorSessionsAuth = [];
+  }
+  const cleanToken = String(token).trim();
+  const session = state.doctorSessionsAuth.find((s) => s.token === cleanToken);
+
   if (!session) return null;
+  if (session.expiresAt && new Date(session.expiresAt).getTime() < Date.now()) {
+    return null;
+  }
   const doctor = state.doctors.find((d) => d.id === session.doctorId);
   const account = state.doctorAccounts.find((a) => a.doctorId === session.doctorId);
-  return { doctor, account, token };
+  if (!doctor || !account) return null;
+  return { doctor, account, token: cleanToken, session, role: 'DOCTOR' as const };
+}
+
+// Helper: authenticate parent token with strict session check
+function getParentAuth(req: any) {
+  const token =
+    req.headers['x-parent-token'] ||
+    req.query.parentToken ||
+    (req.headers.authorization?.startsWith('Bearer ') ? req.headers.authorization.slice(7) : null);
+  if (!token) return null;
+  const state = db.getState();
+  if (!state.parentSessionsAuth) {
+    state.parentSessionsAuth = [];
+  }
+  const cleanToken = String(token).trim();
+  const session = state.parentSessionsAuth.find((s) => s.token === cleanToken);
+  if (!session) return null;
+  if (session.expiresAt && new Date(session.expiresAt).getTime() < Date.now()) {
+    return null;
+  }
+  const parent = state.parents.find((p) => p.id === session.parentId);
+  if (!parent) return null;
+  return { parent, session, token: cleanToken, role: 'PARENT' as const };
+}
+
+function requireDoctorAuth(req: any, res: any, next: any) {
+  const auth = getDoctorAuth(req);
+  if (!auth) {
+    return res.status(401).json({
+      success: false,
+      message: 'Unauthorized: Doctor authentication required or session has expired. Please log in.',
+    });
+  }
+  req.doctorAuth = auth;
+  next();
+}
+
+function requireClinicalReadAuth(req: any, res: any, next: any) {
+  const doctorAuth = getDoctorAuth(req);
+  if (doctorAuth) {
+    req.doctorAuth = doctorAuth;
+    return next();
+  }
+
+  const parentAuth = getParentAuth(req);
+  if (parentAuth) {
+    req.parentAuth = parentAuth.parent;
+    return next();
+  }
+
+  return res.status(401).json({
+    success: false,
+    message: 'Unauthorized: Valid doctor session or authenticated parent session token required.',
+  });
 }
 
 // 1. Doctor Login
@@ -1170,11 +1402,14 @@ apiRouter.get('/doctor/me', (req, res) => {
   });
 });
 
-// 4. Doctor Live Queue with Clinical Summaries
-apiRouter.get('/doctor/queue', (req, res) => {
+// 4. Doctor Live Queue with Clinical Summaries (Real-time synchronized with Reception)
+apiRouter.get('/doctor/queue', (req: any, res) => {
+  const auth = getDoctorAuth(req);
+  if (auth) req.doctorAuth = auth;
   const { doctorId, branchId, date } = req.query;
   const state = db.getState();
-  const targetDoctorId = String(doctorId || state.doctors[0]?.id || 'dr-subba-rao');
+  ensureComprehensiveDemoData(state);
+  const targetDoctorId = String(doctorId || auth?.doctor?.id || state.doctors[0]?.id || 'dr-subba-rao');
   const targetBranchId = (branchId as BranchId) || 'kakinada';
   const targetDate = String(date || state.config.simulatedDate);
 
@@ -1193,16 +1428,19 @@ apiRouter.get('/doctor/queue', (req, res) => {
   const allChildren = state.parents.flatMap((p) => p.children);
   const enrichedAppointments = appointments.map((appt) => {
     const child = allChildren.find((c) => c.id === appt.childId);
+    if (child && !child.permanentId) {
+      child.permanentId = generatePermanentChildId(state);
+    }
     const activeAllergies = state.allergies.filter((al) => al.childId === appt.childId && al.status === 'ACTIVE');
     const activeConditions = state.conditions.filter((co) => co.childId === appt.childId && co.status !== 'RESOLVED');
     const existingEncounter = state.encounters.find((e) => e.appointmentId === appt.id);
 
     return {
       ...appt,
-      childPermanentId: child?.permanentId || 'DM-SDCH-000101',
-      childAge: child?.ageYears,
-      childGender: child?.gender,
-      bloodGroup: child?.bloodGroup,
+      childPermanentId: child?.permanentId || (appt as any).childPermanentId || '',
+      childAge: child?.ageYears ?? (appt as any).childAge,
+      childGender: child?.gender || (appt as any).childGender,
+      bloodGroup: child?.bloodGroup || (appt as any).bloodGroup,
       criticalAllergyCount: activeAllergies.length,
       activeAllergies: activeAllergies.map((a) => `${a.substance} (${a.severity})`),
       chronicConditions: activeConditions.map((c) => c.conditionName),
@@ -1236,8 +1474,8 @@ apiRouter.get('/doctor/queue', (req, res) => {
   });
 });
 
-// 5. EMR Child Search (by Child ID, Mobile, Name)
-apiRouter.get('/emr/children/search', (req, res) => {
+// 5. EMR Child Search (by Child ID, Mobile, Name) - Doctor Auth Enforced
+apiRouter.get('/emr/children/search', requireDoctorAuth, (req: any, res) => {
   const { q } = req.query;
   const state = db.getState();
   const query = String(q || '').trim().toLowerCase();
@@ -1257,11 +1495,11 @@ apiRouter.get('/emr/children/search', (req, res) => {
         results.push({
           childId: child.id,
           childName: child.name,
-          permanentId: child.permanentId || `DM-SDCH-000101`,
+          permanentId: child.permanentId || '',
           dateOfBirth: child.dateOfBirth,
           ageYears: child.ageYears,
           gender: child.gender,
-          bloodGroup: child.bloodGroup || 'B+',
+          bloodGroup: child.bloodGroup || null,
           parentId: parent.id,
           parentName: parent.name,
           parentMobile: parent.mobile,
@@ -1276,8 +1514,8 @@ apiRouter.get('/emr/children/search', (req, res) => {
   res.json({ success: true, count: results.length, children: results.slice(0, 30) });
 });
 
-// 6. Comprehensive Child EMR Profile & Clinical History
-apiRouter.get('/emr/children/:childId', (req, res) => {
+// 6. Comprehensive Child EMR Profile & Clinical History - Scoped Auth Enforced
+apiRouter.get('/emr/children/:childId', requireClinicalReadAuth, (req: any, res) => {
   const { childId } = req.params;
   const state = db.getState();
 
@@ -1295,6 +1533,19 @@ apiRouter.get('/emr/children/:childId', (req, res) => {
 
   if (!matchedChild) {
     return res.status(404).json({ success: false, message: 'Child medical record not found.' });
+  }
+
+  if (!matchedChild.permanentId) {
+    matchedChild.permanentId = generatePermanentChildId(state);
+    db.persistState();
+  }
+
+  // If accessed by parent, verify parent owns this child
+  if (req.parentAuth && matchedParent && matchedParent.id !== req.parentAuth.id) {
+    return res.status(403).json({
+      success: false,
+      message: 'Forbidden: Access to another family record is restricted.',
+    });
   }
 
   const effectiveChildId = matchedChild.id;
@@ -1366,11 +1617,138 @@ apiRouter.get('/emr/children/:childId', (req, res) => {
   });
 });
 
-// 7. Add Child Allergy (Doctor action)
-apiRouter.post('/emr/children/:childId/allergies', (req, res) => {
-  const { childId } = req.params;
-  const { allergyType, substance, reaction, severity, notes, doctorId, doctorName } = req.body;
+// ================= PEDIATRIC DIAGNOSES / CLINICAL PROTOCOLS =================
+
+// Get all pediatric diagnoses
+apiRouter.get('/emr/diagnoses', (req, res) => {
   const state = db.getState();
+  const diagnoses = state.diagnoses && state.diagnoses.length > 0 ? state.diagnoses : PEDIATRIC_DIAGNOSES;
+  res.json({ success: true, diagnoses });
+});
+
+// Add new pediatric diagnosis / health protocol
+apiRouter.post('/emr/diagnoses', requireDoctorAuth, (req: any, res) => {
+  const {
+    name,
+    category,
+    icdCode,
+    teluguName,
+    typicalSymptoms,
+    defaultFollowUpDays,
+    specialNotesEn,
+    specialNotesTe,
+    recommendedMedicines,
+  } = req.body;
+
+  if (!name || !name.trim()) {
+    return res.status(400).json({ success: false, message: 'Diagnosis name is required' });
+  }
+
+  const state = db.getState();
+  const id = `diag-custom-${Date.now()}-${Math.random().toString(36).substr(2, 4)}`;
+
+  const newDiag: PediatricDiagnosis = {
+    id,
+    name: name.trim(),
+    category: category || 'General Pediatrics',
+    icdCode: icdCode?.trim() || 'R69',
+    teluguName: teluguName?.trim() || name.trim(),
+    typicalSymptoms: Array.isArray(typicalSymptoms) ? typicalSymptoms : ['General pediatric symptoms'],
+    defaultFollowUpDays: Number(defaultFollowUpDays) || 3,
+    specialNotesEn: specialNotesEn?.trim() || 'Ensure adequate hydration and observe closely.',
+    specialNotesTe: specialNotesTe?.trim() || 'తగినంత ద్రవాలు తాగించండి మరియు జాగ్రత్తగా గమనించండి.',
+    recommendedMedicines: Array.isArray(recommendedMedicines) ? recommendedMedicines : [],
+  };
+
+  db.updateState((draft) => {
+    if (!draft.diagnoses) draft.diagnoses = [...PEDIATRIC_DIAGNOSES];
+    draft.diagnoses.unshift(newDiag);
+  });
+
+  try {
+    db.getSqlite().saveDiagnoses(db.getState().diagnoses);
+  } catch (err) {
+    console.warn('Failed to save diagnoses to SQLite:', err);
+  }
+
+  res.status(201).json({ success: true, diagnosis: newDiag });
+});
+
+// Update existing pediatric diagnosis / instructions
+apiRouter.put('/emr/diagnoses/:id', requireDoctorAuth, (req: any, res) => {
+  const { id } = req.params;
+  const {
+    name,
+    category,
+    icdCode,
+    teluguName,
+    typicalSymptoms,
+    defaultFollowUpDays,
+    specialNotesEn,
+    specialNotesTe,
+    recommendedMedicines,
+  } = req.body;
+
+  const state = db.getState();
+  const existingIdx = (state.diagnoses || []).findIndex((d) => d.id === id);
+
+  if (existingIdx === -1) {
+    return res.status(404).json({ success: false, message: 'Diagnosis not found' });
+  }
+
+  let updatedDiag: PediatricDiagnosis | null = null;
+  db.updateState((draft) => {
+    if (!draft.diagnoses) draft.diagnoses = [...PEDIATRIC_DIAGNOSES];
+    const target = draft.diagnoses[existingIdx];
+    if (name !== undefined) target.name = name.trim();
+    if (category !== undefined) target.category = category;
+    if (icdCode !== undefined) target.icdCode = icdCode.trim();
+    if (teluguName !== undefined) target.teluguName = teluguName.trim();
+    if (typicalSymptoms !== undefined) target.typicalSymptoms = typicalSymptoms;
+    if (defaultFollowUpDays !== undefined) target.defaultFollowUpDays = Number(defaultFollowUpDays) || target.defaultFollowUpDays;
+    if (specialNotesEn !== undefined) target.specialNotesEn = specialNotesEn.trim();
+    if (specialNotesTe !== undefined) target.specialNotesTe = specialNotesTe.trim();
+    if (recommendedMedicines !== undefined) target.recommendedMedicines = recommendedMedicines;
+    updatedDiag = { ...target };
+  });
+
+  try {
+    db.getSqlite().saveDiagnoses(db.getState().diagnoses);
+  } catch (err) {
+    console.warn('Failed to save diagnoses to SQLite:', err);
+  }
+
+  res.json({ success: true, diagnosis: updatedDiag });
+});
+
+// Delete diagnosis
+apiRouter.delete('/emr/diagnoses/:id', requireDoctorAuth, (req: any, res) => {
+  const { id } = req.params;
+  const state = db.getState();
+  const exists = (state.diagnoses || []).some((d) => d.id === id);
+  if (!exists) {
+    return res.status(404).json({ success: false, message: 'Diagnosis not found' });
+  }
+
+  db.updateState((draft) => {
+    draft.diagnoses = (draft.diagnoses || []).filter((d) => d.id !== id);
+  });
+
+  try {
+    db.getSqlite().saveDiagnoses(db.getState().diagnoses);
+  } catch (err) {
+    console.warn('Failed to save diagnoses to SQLite:', err);
+  }
+
+  res.json({ success: true, message: 'Diagnosis deleted successfully' });
+});
+
+// 7. Add Child Allergy (Doctor action - Doctor Auth Enforced)
+apiRouter.post('/emr/children/:childId/allergies', requireDoctorAuth, (req: any, res) => {
+  const { childId } = req.params;
+  const { allergyType, substance, reaction, severity, notes } = req.body;
+  const state = db.getState();
+  const doctor = req.doctorAuth.doctor;
 
   if (!substance || !reaction) {
     return res.status(400).json({ success: false, message: 'Substance and reaction are required to register an allergy.' });
@@ -1385,8 +1763,8 @@ apiRouter.post('/emr/children/:childId/allergies', (req, res) => {
     severity: severity || 'MODERATE',
     status: 'ACTIVE',
     identifiedDate: state.config.simulatedDate,
-    doctorId: doctorId || 'dr-subba-rao',
-    doctorName: doctorName || 'Dr. K. Subba Rao, MD (Pediatrics)',
+    doctorId: doctor?.id || 'dr-subba-rao',
+    doctorName: doctor?.name || 'Dr. K. Subba Rao, MD (Pediatrics)',
     notes,
     createdAt: new Date().toISOString(),
     updatedAt: new Date().toISOString(),
@@ -1397,9 +1775,9 @@ apiRouter.post('/emr/children/:childId/allergies', (req, res) => {
   });
 
   logClinicalAudit({
-    actorId: doctorId || 'dr-subba-rao',
+    actorId: doctor?.id || 'dr-subba-rao',
     actorRole: 'DOCTOR',
-    actorName: doctorName || 'Dr. K. Subba Rao',
+    actorName: doctor?.name || 'Dr. K. Subba Rao',
     action: 'CREATE',
     entityType: 'ALLERGY',
     entityId: newAllergy.id,
@@ -1410,11 +1788,12 @@ apiRouter.post('/emr/children/:childId/allergies', (req, res) => {
   res.status(201).json({ success: true, allergy: newAllergy });
 });
 
-// 8. Update Allergy Status (e.g. ENTERED_IN_ERROR or RESOLVED)
-apiRouter.patch('/emr/allergies/:allergyId', (req, res) => {
+// 8. Update Allergy Status (Doctor Auth Enforced)
+apiRouter.patch('/emr/allergies/:allergyId', requireDoctorAuth, (req: any, res) => {
   const { allergyId } = req.params;
-  const { status, reaction, severity, notes, doctorId, doctorName } = req.body;
+  const { status, reaction, severity, notes } = req.body;
   const state = db.getState();
+  const doctor = req.doctorAuth.doctor;
 
   const allergy = state.allergies.find((a) => a.id === allergyId);
   if (!allergy) {
@@ -1431,9 +1810,9 @@ apiRouter.patch('/emr/allergies/:allergyId', (req, res) => {
   db.persistState();
 
   logClinicalAudit({
-    actorId: doctorId || 'dr-subba-rao',
+    actorId: doctor?.id || 'dr-subba-rao',
     actorRole: 'DOCTOR',
-    actorName: doctorName || 'Dr. Subba Rao',
+    actorName: doctor?.name || 'Dr. Subba Rao',
     action: status === 'ENTERED_IN_ERROR' ? 'ENTER_ERROR' : status === 'RESOLVED' ? 'RESOLVE' : 'UPDATE',
     entityType: 'ALLERGY',
     entityId: allergy.id,
@@ -1444,11 +1823,12 @@ apiRouter.patch('/emr/allergies/:allergyId', (req, res) => {
   res.json({ success: true, allergy });
 });
 
-// 9. Add Chronic Condition
-apiRouter.post('/emr/children/:childId/conditions', (req, res) => {
+// 9. Add Chronic Condition (Doctor Auth Enforced)
+apiRouter.post('/emr/children/:childId/conditions', requireDoctorAuth, (req: any, res) => {
   const { childId } = req.params;
-  const { conditionName, category, status, notes, followUpRecommendation, doctorId, doctorName } = req.body;
+  const { conditionName, category, status, notes, followUpRecommendation } = req.body;
   const state = db.getState();
+  const doctor = req.doctorAuth.doctor;
 
   if (!conditionName) {
     return res.status(400).json({ success: false, message: 'Condition name is required.' });
@@ -1461,8 +1841,8 @@ apiRouter.post('/emr/children/:childId/conditions', (req, res) => {
     category: category || 'RESPIRATORY',
     status: status || 'ACTIVE',
     firstIdentifiedDate: state.config.simulatedDate,
-    doctorId: doctorId || 'dr-subba-rao',
-    doctorName: doctorName || 'Dr. K. Subba Rao, MD (Pediatrics)',
+    doctorId: doctor?.id || 'dr-subba-rao',
+    doctorName: doctor?.name || 'Dr. K. Subba Rao, MD (Pediatrics)',
     notes,
     followUpRecommendation,
     createdAt: new Date().toISOString(),
@@ -1474,9 +1854,9 @@ apiRouter.post('/emr/children/:childId/conditions', (req, res) => {
   });
 
   logClinicalAudit({
-    actorId: doctorId || 'dr-subba-rao',
+    actorId: doctor?.id || 'dr-subba-rao',
     actorRole: 'DOCTOR',
-    actorName: doctorName || 'Dr. K. Subba Rao',
+    actorName: doctor?.name || 'Dr. K. Subba Rao',
     action: 'CREATE',
     entityType: 'CONDITION',
     entityId: newCondition.id,
@@ -1487,11 +1867,12 @@ apiRouter.post('/emr/children/:childId/conditions', (req, res) => {
   res.status(201).json({ success: true, condition: newCondition });
 });
 
-// 10. Update Chronic Condition
-apiRouter.patch('/emr/conditions/:conditionId', (req, res) => {
+// 10. Update Chronic Condition (Doctor Auth Enforced)
+apiRouter.patch('/emr/conditions/:conditionId', requireDoctorAuth, (req: any, res) => {
   const { conditionId } = req.params;
-  const { status, notes, followUpRecommendation, doctorId, doctorName } = req.body;
+  const { status, notes, followUpRecommendation } = req.body;
   const state = db.getState();
+  const doctor = req.doctorAuth.doctor;
 
   const condition = state.conditions.find((c) => c.id === conditionId);
   if (!condition) {
@@ -1507,9 +1888,9 @@ apiRouter.patch('/emr/conditions/:conditionId', (req, res) => {
   db.persistState();
 
   logClinicalAudit({
-    actorId: doctorId || 'dr-subba-rao',
+    actorId: doctor?.id || 'dr-subba-rao',
     actorRole: 'DOCTOR',
-    actorName: doctorName || 'Dr. Subba Rao',
+    actorName: doctor?.name || 'Dr. Subba Rao',
     action: status === 'RESOLVED' ? 'RESOLVE' : 'UPDATE',
     entityType: 'CONDITION',
     entityId: condition.id,
@@ -1520,59 +1901,106 @@ apiRouter.patch('/emr/conditions/:conditionId', (req, res) => {
   res.json({ success: true, condition });
 });
 
-// 11. Record Pediatric Growth / Vitals
-apiRouter.post('/emr/children/:childId/growth', (req, res) => {
+// 11. Record Pediatric Growth / Vitals - Doctor Auth Enforced
+apiRouter.post('/emr/children/:childId/growth', requireDoctorAuth, (req: any, res) => {
   const { childId } = req.params;
-  const { heightCm, weightKg, temperatureF, pulseRate, recordedByRole, recordedByName, notes, appointmentId } = req.body;
+  const { heightCm, weightKg, temperatureF, pulseRate, notes, appointmentId } = req.body;
   const state = db.getState();
 
-  if (!heightCm || !weightKg) {
-    return res.status(400).json({ success: false, message: 'Height (cm) and Weight (kg) are required.' });
+  const numHeight = Number(heightCm);
+  const numWeight = Number(weightKg);
+
+  if (!Number.isFinite(numHeight) || numHeight < 20 || numHeight > 220) {
+    return res.status(400).json({
+      success: false,
+      message: `Invalid height: ${heightCm}. Height must be a positive finite number between 20 cm and 220 cm.`,
+    });
   }
 
-  // Find child age
+  if (!Number.isFinite(numWeight) || numWeight < 0.5 || numWeight > 180) {
+    return res.status(400).json({
+      success: false,
+      message: `Invalid weight: ${weightKg}. Weight must be a positive finite number between 0.5 kg and 180 kg.`,
+    });
+  }
+
+  if (temperatureF !== undefined && temperatureF !== '' && temperatureF !== null) {
+    const numTemp = Number(temperatureF);
+    if (!Number.isFinite(numTemp) || numTemp < 90 || numTemp > 110) {
+      return res.status(400).json({
+        success: false,
+        message: `Invalid temperature: ${temperatureF}°F. Must be between 90°F and 110°F.`,
+      });
+    }
+  }
+
+  if (pulseRate !== undefined && pulseRate !== '' && pulseRate !== null) {
+    const numPulse = Number(pulseRate);
+    if (!Number.isFinite(numPulse) || numPulse < 40 || numPulse > 250) {
+      return res.status(400).json({
+        success: false,
+        message: `Invalid pulse rate: ${pulseRate} bpm. Must be between 40 and 250 bpm.`,
+      });
+    }
+  }
+
+  // Find child age (calculate from DOB if available, or child.ageYears)
   const allChildren = state.parents.flatMap((p) => p.children);
   const child = allChildren.find((c) => c.id === childId);
-  const ageYears = child?.ageYears || 3;
-
-  const record = calculatePediatricGrowth({
-    childId,
-    ageYears,
-    heightCm: Number(heightCm),
-    weightKg: Number(weightKg),
-    recordedByRole: recordedByRole || 'DOCTOR',
-    recordedByName: recordedByName || 'Dr. K. Subba Rao',
-    notes,
-  });
-
-  db.updateState((draft) => {
-    draft.growthRecords.unshift(record);
-
-    // If linked to active appointment, update appointment vitals as well
-    if (appointmentId) {
-      const appt = draft.appointments.find((a) => a.id === appointmentId);
-      if (appt) {
-        appt.heightCm = Number(heightCm);
-        appt.weightKg = Number(weightKg);
-        if (temperatureF) appt.temperatureF = Number(temperatureF);
-        if (pulseRate) appt.pulseRate = Number(pulseRate);
-        appt.pediatricBmi = record.pediatricBmi;
-      }
+  let calculatedAge = child?.ageYears;
+  if (calculatedAge === undefined && child?.dateOfBirth) {
+    const birthYear = new Date(child.dateOfBirth).getFullYear();
+    const simYear = new Date(state.config.simulatedDate).getFullYear();
+    if (!isNaN(birthYear) && !isNaN(simYear)) {
+      calculatedAge = Math.max(0, simYear - birthYear);
     }
-  });
+  }
+  const ageYears = typeof calculatedAge === 'number' && !isNaN(calculatedAge) && calculatedAge >= 0 ? calculatedAge : undefined;
 
-  logClinicalAudit({
-    actorId: recordedByName || 'doctor',
-    actorRole: recordedByRole || 'DOCTOR',
-    actorName: recordedByName || 'Pediatrician',
-    action: 'CREATE',
-    entityType: 'GROWTH',
-    entityId: record.id,
-    childId,
-    details: `Recorded growth: ${record.heightCm}cm, ${record.weightKg}kg, BMI ${record.pediatricBmi} (${record.growthStatus})`,
-  });
+  const doctor = req.doctorAuth.doctor;
 
-  res.status(201).json({ success: true, growthRecord: record });
+  try {
+    const record = calculatePediatricGrowth({
+      childId,
+      ageYears,
+      heightCm: numHeight,
+      weightKg: numWeight,
+      recordedByRole: 'DOCTOR',
+      recordedByName: doctor.name,
+      notes,
+    });
+
+    db.updateState((draft) => {
+      draft.growthRecords.unshift(record);
+
+      // If linked to active appointment, update appointment vitals as well
+      if (appointmentId) {
+        const appt = draft.appointments.find((a) => a.id === appointmentId);
+        if (appt) {
+          appt.heightCm = numHeight;
+          appt.weightKg = numWeight;
+          if (temperatureF) appt.temperatureF = Number(temperatureF);
+          if (pulseRate) appt.pulseRate = Number(pulseRate);
+          appt.pediatricBmi = record.pediatricBmi;
+        }
+      }
+    });
+
+    logClinicalAudit({
+      actorId: doctor.id,
+      actorRole: 'DOCTOR',
+      actorName: doctor.name,
+      action: 'CREATE',
+      entityType: 'GROWTH',
+      entityId: record.id,
+      childId,
+      details: `Recorded growth: ${record.heightCm}cm, ${record.weightKg}kg, BMI ${record.pediatricBmi} (${record.growthStatus})`,
+    });
+
+    res.status(201).json({ success: true, growthRecord: record });
+  } catch (err: any) {
+    return res.status(400).json({ success: false, message: err?.message || 'Failed to calculate growth parameters.' });
+  }
 });
 
 // 12. Fast Medicines Catalog (standard pediatric drugs for quick 1-click prescription)
@@ -1783,9 +2211,9 @@ apiRouter.get('/emr/medicines/catalog', (_req, res) => {
   res.json({ success: true, catalog });
 });
 
-// 13. Start Consultation / Encounter
-apiRouter.post('/emr/encounters/start', (req, res) => {
-  const { childId, appointmentId, doctorId, branchId, visitType } = req.body;
+// 13. Start Consultation / Encounter - Doctor Auth Enforced
+apiRouter.post('/emr/encounters/start', requireDoctorAuth, (req: any, res) => {
+  const { childId, appointmentId, branchId, visitType } = req.body;
   const state = db.getState();
 
   // Find child & parent
@@ -1804,7 +2232,12 @@ apiRouter.post('/emr/encounters/start', (req, res) => {
     return res.status(404).json({ success: false, message: 'Child record not found.' });
   }
 
-  const doctor = state.doctors.find((d) => d.id === doctorId) || state.doctors[0];
+  if (!matchedChild.permanentId) {
+    matchedChild.permanentId = generatePermanentChildId(state);
+    db.persistState();
+  }
+
+  const doctor = req.doctorAuth.doctor;
   const targetBranch = (branchId as BranchId) || 'kakinada';
 
   // Check if there is already an active encounter
@@ -1812,12 +2245,13 @@ apiRouter.post('/emr/encounters/start', (req, res) => {
     (e) => e.childId === childId && e.status === 'IN_PROGRESS' && (appointmentId ? e.appointmentId === appointmentId : true)
   );
 
-  if (!encounter) {
+  const isNewEncounter = !encounter;
+  if (isNewEncounter) {
     encounter = {
       id: `enc-${Date.now()}-${Math.random().toString(36).substr(2, 4)}`,
       appointmentId,
       childId: matchedChild.id,
-      childPermanentId: matchedChild.permanentId || 'DM-SDCH-000101',
+      childPermanentId: matchedChild.permanentId,
       childName: matchedChild.name,
       parentId: matchedParent.id,
       parentName: matchedParent.name,
@@ -1835,31 +2269,30 @@ apiRouter.post('/emr/encounters/start', (req, res) => {
     };
 
     state.encounters.unshift(encounter);
-  }
 
-  // Advance appointment status in Smart OPD to WITH_DOCTOR
-  if (appointmentId) {
-    schedulingService.sendToDoctor(appointmentId);
+    // Advance appointment status in Smart OPD to WITH_DOCTOR only on new encounter
+    if (appointmentId) {
+      schedulingService.sendToDoctor(appointmentId);
+    }
+
+    logClinicalAudit({
+      actorId: doctor.id,
+      actorRole: 'DOCTOR',
+      actorName: doctor.name,
+      action: 'CREATE',
+      entityType: 'ENCOUNTER',
+      entityId: encounter.id,
+      childId: matchedChild.id,
+      details: `Started encounter consultation for ${matchedChild.name} (${matchedChild.permanentId})`,
+    });
   }
 
   db.persistState();
-
-  logClinicalAudit({
-    actorId: doctor.id,
-    actorRole: 'DOCTOR',
-    actorName: doctor.name,
-    action: 'CREATE',
-    entityType: 'ENCOUNTER',
-    entityId: encounter.id,
-    childId: matchedChild.id,
-    details: `Started encounter consultation for ${matchedChild.name} (${matchedChild.permanentId})`,
-  });
-
   res.json({ success: true, encounter });
 });
 
-// 14. Finalize Consultation & Generate Bilingual Digital Prescription
-apiRouter.post('/emr/encounters/:encounterId/finalize', (req, res) => {
+// 14. Finalize Consultation & Generate Bilingual Digital Prescription - Doctor Auth Enforced
+apiRouter.post('/emr/encounters/:encounterId/finalize', requireDoctorAuth, (req: any, res) => {
   const { encounterId } = req.params;
   const {
     chiefComplaints,
@@ -1870,7 +2303,7 @@ apiRouter.post('/emr/encounters/:encounterId/finalize', (req, res) => {
     items,
     specialNotesEn,
     specialNotesTe,
-    doctorId,
+    callNext = false,
   } = req.body;
 
   const state = db.getState();
@@ -1879,15 +2312,44 @@ apiRouter.post('/emr/encounters/:encounterId/finalize', (req, res) => {
     return res.status(404).json({ success: false, message: 'Encounter not found.' });
   }
 
-  const doctor = state.doctors.find((d) => d.id === (doctorId || encounter.doctorId)) || state.doctors[0];
-  const doctorAccount = state.doctorAccounts.find((a) => a.doctorId === doctor.id);
+  const doctor = req.doctorAuth.doctor;
+  const doctorAccount = req.doctorAuth.account;
+
+  // Validate prescribed medicines (duration and positive dosage - D02)
+  for (const item of (items || [])) {
+    const dur = Number(item.durationDays);
+    if (!Number.isFinite(dur) || dur < 1) {
+      return res.status(400).json({
+        success: false,
+        message: `Invalid duration for medicine "${item.medicineName || 'item'}". Duration must be at least 1 day.`,
+      });
+    }
+
+    const doseStr = String(item.dosage || '').trim();
+    const parsedDose = parseFloat(doseStr);
+    if (!Number.isFinite(parsedDose) || parsedDose <= 0) {
+      return res.status(400).json({
+        success: false,
+        message: `Invalid dosage for medicine "${item.medicineName || 'item'}". Dosage amount must be a positive number greater than 0.`,
+      });
+    }
+    if (item.dosageAmount !== undefined) {
+      const numDoseAmount = Number(item.dosageAmount);
+      if (!Number.isFinite(numDoseAmount) || numDoseAmount <= 0) {
+        return res.status(400).json({
+          success: false,
+          message: `Invalid dosage for medicine "${item.medicineName || 'item'}". Dosage amount must be a positive number greater than 0.`,
+        });
+      }
+    }
+  }
 
   // Active allergies snapshot for banner
   const activeAllergies = state.allergies
     .filter((a) => a.childId === encounter.childId && a.status === 'ACTIVE')
     .map((a) => `${a.substance} (${a.reaction})`);
 
-  // Build processed prescription items with Telugu & English instructions
+  // Build processed prescription items with Telugu & English instructions, preserving route & site
   const processedItems: PrescriptionItem[] = (items || []).map((item: any, idx: number) => {
     const bilingual = buildInstructionTexts({
       form: item.form || 'SYRUP',
@@ -1895,6 +2357,9 @@ apiRouter.post('/emr/encounters/:encounterId/finalize', (req, res) => {
       frequency: item.frequency || 'TWICE_DAILY',
       timing: item.timing || 'AFTER_FOOD',
       durationDays: Number(item.durationDays || 5),
+      route: item.route,
+      site: item.site,
+      instructionsHint: item.instructionsHint,
     });
 
     return {
@@ -1910,8 +2375,44 @@ apiRouter.post('/emr/encounters/:encounterId/finalize', (req, res) => {
       timeSlots: bilingual.timeSlots,
       instructionEn: item.instructionEn || bilingual.instructionEn,
       instructionTe: item.instructionTe || bilingual.instructionTe,
+      route: item.route,
+      site: item.site,
+      instructionsHint: item.instructionsHint,
     };
   });
+
+  const allChildren = state.parents.flatMap((p) => p.children || []);
+  const matchedChild = allChildren.find((c) => c.id === encounter.childId);
+  if (matchedChild && !matchedChild.permanentId) {
+    matchedChild.permanentId = generatePermanentChildId(state);
+  }
+  const childPermanentId = matchedChild?.permanentId || encounter.childPermanentId || generatePermanentChildId(state);
+  encounter.childPermanentId = childPermanentId;
+
+  const latestGrowth = state.growthRecords
+    .filter((g) => g.childId === encounter.childId)
+    .sort((a, b) => b.recordedDate.localeCompare(a.recordedDate))[0];
+
+  const rxWeightKg = req.body.weightKg !== undefined && !isNaN(Number(req.body.weightKg))
+    ? Number(req.body.weightKg)
+    : (latestGrowth?.weightKg || (encounter as any).weightKg || undefined);
+  const rxHeightCm = req.body.heightCm !== undefined && !isNaN(Number(req.body.heightCm))
+    ? Number(req.body.heightCm)
+    : (latestGrowth?.heightCm || (encounter as any).heightCm || undefined);
+  const rxTemp = req.body.temperatureF !== undefined && !isNaN(Number(req.body.temperatureF))
+    ? Number(req.body.temperatureF)
+    : ((encounter as any).temperatureF || undefined);
+  const rxPulse = req.body.pulseRate !== undefined && !isNaN(Number(req.body.pulseRate))
+    ? Number(req.body.pulseRate)
+    : ((encounter as any).pulseRate || undefined);
+  let rxBmi = req.body.pediatricBmi !== undefined && !isNaN(Number(req.body.pediatricBmi))
+    ? Number(req.body.pediatricBmi)
+    : (latestGrowth?.pediatricBmi || (encounter as any).pediatricBmi || undefined);
+  if (!rxBmi && rxHeightCm && rxWeightKg) {
+    const hM = rxHeightCm / 100;
+    rxBmi = Number((rxWeightKg / (hM * hM)).toFixed(1));
+  }
+  const rxBloodGroup = req.body.bloodGroup || matchedChild?.bloodGroup || undefined;
 
   const year = state.config.simulatedDate.split('-')[0] || '2026';
   const rxNumber = `RX-SDCH-${year}-${Math.floor(100000 + Math.random() * 900000)}`;
@@ -1921,16 +2422,25 @@ apiRouter.post('/emr/encounters/:encounterId/finalize', (req, res) => {
     encounterId: encounter.id,
     prescriptionNumber: rxNumber,
     childId: encounter.childId,
-    childPermanentId: encounter.childPermanentId,
-    childName: encounter.childName,
+    childPermanentId,
+    childName: matchedChild?.name || encounter.childName,
+    childAge: matchedChild?.ageYears,
+    childAgeMonths: matchedChild?.ageMonths,
+    childGender: matchedChild?.gender,
+    weightKg: rxWeightKg,
+    heightCm: rxHeightCm,
+    temperatureF: rxTemp,
+    pulseRate: rxPulse,
+    pediatricBmi: rxBmi,
+    bloodGroup: rxBloodGroup,
     doctorId: doctor.id,
     doctorName: doctor.name,
-    doctorRegNo: doctorAccount?.medicalRegistrationNo || doctor.medicalRegistrationNo || 'APMC-38492',
+    doctorRegNo: doctorAccount?.medicalRegistrationNo || doctor.medicalRegistrationNo || doctor.regNo || 'APMC-38492',
     hospitalName: 'Sri Devi Children Hospital',
     branchId: encounter.branchId,
     date: state.config.simulatedDate,
     version: 1,
-    diagnosis: diagnosis || encounter.diagnosis || 'Upper Respiratory Tract Infection',
+    diagnosis: diagnosis || encounter.diagnosis || 'Pediatric Consultation',
     items: processedItems,
     allergyBannerSnapshot: activeAllergies,
     specialNotesEn,
@@ -1958,42 +2468,35 @@ apiRouter.post('/emr/encounters/:encounterId/finalize', (req, res) => {
     schedulingService.completeConsultation(encounter.appointmentId);
   }
 
-  // Automatically advance queue: pull the next waiting child into consultation
+  // Queue auto-advance: ONLY if callNext is explicitly requested AND an arrived/waiting patient exists
   let nextPatient: any = null;
-  const targetDoctorId = doctor.id || encounter.doctorId;
-  const targetBranchId = encounter.branchId;
-  const targetDate = state.config.simulatedDate;
+  if (callNext) {
+    const targetDoctorId = doctor.id || encounter.doctorId;
+    const targetBranchId = encounter.branchId;
+    const targetDate = state.config.simulatedDate;
 
-  const nextWaitingAppt = state.appointments
-    .filter(
-      (a) =>
-        a.doctorId === targetDoctorId &&
-        a.branchId === targetBranchId &&
-        a.date === targetDate &&
-        (a.status === 'WAITING' || a.status === 'ARRIVED')
-    )
-    .sort((a, b) => timeToMinutes(a.bookedTime) - timeToMinutes(b.bookedTime))[0]
-    ||
-    state.appointments
-    .filter(
-      (a) =>
-        a.doctorId === targetDoctorId &&
-        a.branchId === targetBranchId &&
-        a.date === targetDate &&
-        (a.status === 'BOOKED' || a.status === 'APPROACHING')
-    )
-    .sort((a, b) => timeToMinutes(a.bookedTime) - timeToMinutes(b.bookedTime))[0];
+    // STRICT: Only call arrived/checked-in waiting patients
+    const nextWaitingAppt = state.appointments
+      .filter(
+        (a) =>
+          a.doctorId === targetDoctorId &&
+          a.branchId === targetBranchId &&
+          a.date === targetDate &&
+          (a.status === 'WAITING' || a.status === 'ARRIVED')
+      )
+      .sort((a, b) => timeToMinutes(a.bookedTime) - timeToMinutes(b.bookedTime))[0];
 
-  if (nextWaitingAppt) {
-    schedulingService.sendToDoctor(nextWaitingAppt.id);
-    const allChildren = state.parents.flatMap((p) => p.children);
-    const child = allChildren.find((c) => c.id === nextWaitingAppt.childId);
-    nextPatient = {
-      ...nextWaitingAppt,
-      childPermanentId: child?.permanentId || 'DM-SDCH-000101',
-      childAge: child?.ageYears,
-      childGender: child?.gender,
-    };
+    if (nextWaitingAppt) {
+      schedulingService.sendToDoctor(nextWaitingAppt.id);
+      const allChildren = state.parents.flatMap((p) => p.children);
+      const child = allChildren.find((c) => c.id === nextWaitingAppt.childId);
+      nextPatient = {
+        ...nextWaitingAppt,
+        childPermanentId: child?.permanentId || '',
+        childAge: child?.ageYears,
+        childGender: child?.gender,
+      };
+    }
   }
 
   db.persistState();
@@ -2018,9 +2521,9 @@ apiRouter.post('/emr/encounters/:encounterId/finalize', (req, res) => {
   });
 });
 
-// Quick Complete Treatment & Automatically Call Next Patient
-apiRouter.post('/doctor/complete-treatment', (req, res) => {
-  const { doctorId, branchId, appointmentId, encounterId } = req.body;
+// Quick Complete Treatment & Optionally Call Next Arrived Patient
+apiRouter.post('/doctor/complete-treatment', requireDoctorAuth, (req: any, res) => {
+  const { doctorId, branchId, appointmentId, encounterId, callNext } = req.body;
   const state = db.getState();
 
   if (appointmentId) {
@@ -2035,48 +2538,41 @@ apiRouter.post('/doctor/complete-treatment', (req, res) => {
     }
   }
 
-  const targetDoctorId = doctorId || state.doctors[0]?.id || 'dr-subba-rao';
+  const targetDoctorId = doctorId || req.doctorAuth?.doctor?.id || state.doctors[0]?.id || 'dr-subba-rao';
   const targetBranchId = (branchId as BranchId) || 'kakinada';
   const targetDate = state.config.simulatedDate;
 
-  const nextWaitingAppt = state.appointments
-    .filter(
-      (a) =>
-        a.doctorId === targetDoctorId &&
-        a.branchId === targetBranchId &&
-        a.date === targetDate &&
-        (a.status === 'WAITING' || a.status === 'ARRIVED')
-    )
-    .sort((a, b) => timeToMinutes(a.bookedTime) - timeToMinutes(b.bookedTime))[0]
-    ||
-    state.appointments
-    .filter(
-      (a) =>
-        a.doctorId === targetDoctorId &&
-        a.branchId === targetBranchId &&
-        a.date === targetDate &&
-        (a.status === 'BOOKED' || a.status === 'APPROACHING')
-    )
-    .sort((a, b) => timeToMinutes(a.bookedTime) - timeToMinutes(b.bookedTime))[0];
-
   let nextPatient = null;
-  if (nextWaitingAppt) {
-    schedulingService.sendToDoctor(nextWaitingAppt.id);
-    const allChildren = state.parents.flatMap((p) => p.children);
-    const child = allChildren.find((c) => c.id === nextWaitingAppt.childId);
-    nextPatient = {
-      ...nextWaitingAppt,
-      childPermanentId: child?.permanentId || 'DM-SDCH-000101',
-      childAge: child?.ageYears,
-      childGender: child?.gender,
-    };
+  // STRICT: Only call arrived/checked-in waiting patients when callNext is true
+  if (callNext) {
+    const nextWaitingAppt = state.appointments
+      .filter(
+        (a) =>
+          a.doctorId === targetDoctorId &&
+          a.branchId === targetBranchId &&
+          a.date === targetDate &&
+          (a.status === 'WAITING' || a.status === 'ARRIVED')
+      )
+      .sort((a, b) => timeToMinutes(a.bookedTime) - timeToMinutes(b.bookedTime))[0];
+
+    if (nextWaitingAppt) {
+      schedulingService.sendToDoctor(nextWaitingAppt.id);
+      const allChildren = state.parents.flatMap((p) => p.children);
+      const child = allChildren.find((c) => c.id === nextWaitingAppt.childId);
+      nextPatient = {
+        ...nextWaitingAppt,
+        childPermanentId: child?.permanentId || '',
+        childAge: child?.ageYears,
+        childGender: child?.gender,
+      };
+    }
   }
 
   db.persistState();
 
   res.json({
     success: true,
-    message: 'Treatment marked completed. Next patient called into room.',
+    message: 'Consultation completed successfully.',
     nextPatient,
   });
 });
@@ -2138,5 +2634,108 @@ apiRouter.patch('/emr/correction-requests/:requestId', (req, res) => {
   db.persistState();
 
   res.json({ success: true, correctionRequest: reqItem });
+});
+
+// 18. Teleconsultations (Public & Reception Desk)
+apiRouter.get('/teleconsultations', (req, res) => {
+  const { mobile, doctorId, date } = req.query;
+  const state = db.getState();
+  let list = state.teleconsultations || [];
+
+  if (mobile) {
+    const cleanMobile = String(mobile).replace(/\D/g, '');
+    list = list.filter((t) => t.parentMobile.replace(/\D/g, '').includes(cleanMobile));
+  }
+  if (doctorId) {
+    list = list.filter((t) => t.doctorId === doctorId);
+  }
+  if (date) {
+    list = list.filter((t) => t.date === date);
+  }
+
+  res.json(list);
+});
+
+apiRouter.post('/teleconsultations', (req, res) => {
+  const {
+    childName,
+    childAge,
+    childGender,
+    parentName,
+    parentMobile,
+    doctorId,
+    doctorName,
+    specialty,
+    date,
+    timeSlot,
+    patientAvailability = 'AVAILABLE_NOW',
+    preferredChannel = 'WHATSAPP_VIDEO',
+    symptoms = '',
+    paymentStatus = 'PENDING',
+    paymentMethod,
+    paymentReference,
+    amount = 300,
+  } = req.body;
+
+  if (!childName || !parentMobile) {
+    return res.status(400).json({ success: false, message: 'Child name and parent mobile are required.' });
+  }
+
+  const state = db.getState();
+  const year = state.config.simulatedDate.split('-')[0] || '2026';
+  const randomNum = Math.floor(1000 + Math.random() * 9000);
+  const teleconsultNumber = `TELE-${year}-${randomNum}`;
+
+  const newTeleconsult: any = {
+    id: `tele-${Date.now()}`,
+    teleconsultNumber,
+    childName: String(childName).trim(),
+    childAge: childAge ? Number(childAge) : undefined,
+    childGender: childGender || 'Child',
+    parentName: parentName ? String(parentName).trim() : 'Parent',
+    parentMobile: String(parentMobile).trim(),
+    doctorId: doctorId || 'dr-subba-rao',
+    doctorName: doctorName || 'Dr. M. Subba Rao',
+    specialty: specialty || 'Senior Consultant Pediatrician',
+    date: date || state.config.simulatedDate,
+    timeSlot: timeSlot || '04:30 PM',
+    patientAvailability,
+    preferredChannel,
+    symptoms: String(symptoms).trim(),
+    paymentStatus: paymentStatus === 'PAID' ? 'PAID' : 'PENDING',
+    paymentMethod: paymentMethod || (paymentStatus === 'PAID' ? 'UPI_PHONEPE' : undefined),
+    paymentReference: paymentReference ? String(paymentReference).trim() : undefined,
+    amount: Number(amount) || 300,
+    status: 'CONFIRMED',
+    createdAt: new Date().toISOString(),
+  };
+
+  if (!state.teleconsultations) {
+    state.teleconsultations = [];
+  }
+  state.teleconsultations.unshift(newTeleconsult);
+  db.persistState();
+
+  res.status(201).json({ success: true, teleconsultation: newTeleconsult });
+});
+
+apiRouter.patch('/teleconsultations/:id', (req, res) => {
+  const { id } = req.params;
+  const { patientAvailability, paymentStatus, paymentReference, paymentMethod, status } = req.body;
+  const state = db.getState();
+
+  const item = (state.teleconsultations || []).find((t) => t.id === id);
+  if (!item) {
+    return res.status(404).json({ success: false, message: 'Teleconsultation not found.' });
+  }
+
+  if (patientAvailability) item.patientAvailability = patientAvailability;
+  if (paymentStatus) item.paymentStatus = paymentStatus;
+  if (paymentReference !== undefined) item.paymentReference = paymentReference;
+  if (paymentMethod !== undefined) item.paymentMethod = paymentMethod;
+  if (status) item.status = status;
+
+  db.persistState();
+  res.json({ success: true, teleconsultation: item });
 });
 

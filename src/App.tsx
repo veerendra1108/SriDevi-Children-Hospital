@@ -31,10 +31,17 @@ import { ReceptionDashboard } from './components/ReceptionDashboard.js';
 import { DoctorDashboard } from './components/DoctorDashboard.js';
 import { AnalyticsModal } from './components/AnalyticsModal.js';
 import { TrackAppointmentModal } from './components/TrackAppointmentModal.js';
+import { TeleconsultationSection } from './components/TeleconsultationSection.js';
 
 export default function App() {
-  const [activeTab, setActiveTab] = useState<string>('home');
+  const [activeTab, setActiveTab] = useState<string>(() => {
+    const saved = localStorage.getItem('sri_devi_active_tab');
+    return (saved === 'doctor-desk' || saved === 'reception-desk' || saved === 'parent-portal') ? saved : 'home';
+  });
   const [parentUser, setParentUser] = useState<Parent | null>(null);
+  const [parentToken, setParentToken] = useState<string | null>(() => {
+    return localStorage.getItem('sri_devi_parent_token');
+  });
   const [receptionUser, setReceptionUser] = useState<{
     username: string;
     branchId: BranchId;
@@ -45,6 +52,11 @@ export default function App() {
     account: DoctorAccount;
     token: string;
   } | null>(null);
+
+  // Synchronize activeTab in localStorage to maintain session across refreshes and clock ticks
+  useEffect(() => {
+    localStorage.setItem('sri_devi_active_tab', activeTab);
+  }, [activeTab]);
 
   // Modals
   const [isParentLoginOpen, setIsParentLoginOpen] = useState(false);
@@ -83,6 +95,32 @@ export default function App() {
   useEffect(() => {
     loadHospitalData();
     restoreDoctorSession();
+
+    // Cross-dashboard hospital clock synchronization (QT-D03)
+    const syncHospitalClock = async () => {
+      try {
+        const res = await fetch('/api/simulation/config');
+        if (res.ok) {
+          const cfg = await res.json();
+          if (cfg && cfg.simulatedTime) {
+            setConfig((prev) => {
+              if (
+                prev.simulatedTime !== cfg.simulatedTime ||
+                prev.simulatedDate !== cfg.simulatedDate
+              ) {
+                return { ...prev, ...cfg };
+              }
+              return prev;
+            });
+          }
+        }
+      } catch {
+        // Silently ignore background poll errors
+      }
+    };
+
+    const syncInterval = setInterval(syncHospitalClock, 4000);
+    return () => clearInterval(syncInterval);
   }, []);
 
   const restoreDoctorSession = async () => {
@@ -95,6 +133,10 @@ export default function App() {
       const data = await res.json();
       if (data.success && data.doctor && data.account) {
         setDoctorUser({ doctor: data.doctor, account: data.account, token: savedToken });
+        const savedTab = localStorage.getItem('sri_devi_active_tab');
+        if (!savedTab || savedTab === 'doctor-desk') {
+          setActiveTab('doctor-desk');
+        }
       }
     } catch (err) {
       console.error('Session restore failed:', err);
@@ -178,6 +220,14 @@ export default function App() {
         setActiveTab('reception-desk');
       } else {
         setIsReceptionLoginOpen(true);
+      }
+      return;
+    }
+    if (view === 'doctor-desk' || view === 'doctor-dashboard') {
+      if (doctorUser) {
+        setActiveTab('doctor-desk');
+      } else {
+        setIsDoctorLoginOpen(true);
       }
       return;
     }
@@ -304,8 +354,12 @@ export default function App() {
     setIsRescheduleModalOpen(true);
   };
 
-  const handleParentLoginSuccess = (parent: Parent) => {
+  const handleParentLoginSuccess = (parent: Parent, token?: string) => {
     setParentUser(parent);
+    if (token) {
+      setParentToken(token);
+      localStorage.setItem('sri_devi_parent_token', token);
+    }
     setActiveTab('parent-portal');
   };
 
@@ -318,12 +372,24 @@ export default function App() {
     setActiveTab('reception-desk');
   };
 
-  const handleLogoutParent = () => {
+  const handleLogoutParent = async () => {
+    if (parentToken) {
+      try {
+        await fetch('/api/auth/parent-logout', {
+          method: 'POST',
+          headers: { 'x-parent-token': parentToken },
+        });
+      } catch (err) {}
+    }
+    localStorage.removeItem('sri_devi_parent_token');
+    localStorage.removeItem('sri_devi_active_tab');
+    setParentToken(null);
     setParentUser(null);
     setActiveTab('home');
   };
 
   const handleLogoutReception = () => {
+    localStorage.removeItem('sri_devi_active_tab');
     setReceptionUser(null);
     setActiveTab('home');
   };
@@ -345,6 +411,7 @@ export default function App() {
       }
     }
     localStorage.removeItem('sri_devi_doctor_token');
+    localStorage.removeItem('sri_devi_active_tab');
     setDoctorUser(null);
     setActiveTab('home');
   };
@@ -397,6 +464,7 @@ export default function App() {
         {activeTab === 'parent-portal' && parentUser ? (
           <ParentDashboard
             parentUser={parentUser}
+            parentToken={parentToken}
             config={config}
             onOpenBookAppointment={() => handleOpenBooking()}
             onRescheduleAppointment={handleOpenReschedule}
@@ -411,6 +479,7 @@ export default function App() {
             config={config}
             onLogout={handleLogoutReception}
             onOpenAnalytics={() => setIsAnalyticsOpen(true)}
+            onConfigUpdate={handleConfigUpdate}
           />
         ) : activeTab === 'doctor-desk' && doctorUser ? (
           <DoctorDashboard
@@ -432,6 +501,12 @@ export default function App() {
               doctors={doctors}
               schedules={schedules}
               onBookWithDoctor={(docId) => handleOpenBooking(docId)}
+            />
+
+            <TeleconsultationSection
+              doctors={doctors}
+              simulatedDate={config.simulatedDate}
+              onBookInPerson={() => handleOpenBooking()}
             />
 
             <LocationsSection

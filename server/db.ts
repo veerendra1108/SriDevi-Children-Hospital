@@ -20,13 +20,24 @@ import {
   PediatricGrowthRecord,
   ClinicalCorrectionRequest,
   ClinicalAuditLog,
+  Teleconsultation,
 } from '../src/types/index.js';
 import { SqliteManager } from './sqlite.js';
 import { IAP_2018_SCHEDULE_MASTER, addDays } from './vaccineScheduleData.js';
+import { PEDIATRIC_DIAGNOSES, PediatricDiagnosis } from '../src/data/pediatricDiagnoses.js';
+import {
+  getDemoAllergies,
+  getDemoConditions,
+  getDemoGrowthRecords,
+  getDemoEncounters,
+  getDemoAppointments,
+  ensureComprehensiveDemoData,
+} from './demoSeedData.js';
 
 export interface DatabaseState {
   parents: Parent[];
   parentPasswords: Record<string, string>; // mobile -> password
+  parentSessionsAuth: { token: string; parentId: string; expiresAt: string }[];
   receptionUsers: {
     username: string;
     password: string;
@@ -53,6 +64,8 @@ export interface DatabaseState {
   growthRecords: PediatricGrowthRecord[];
   correctionRequests: ClinicalCorrectionRequest[];
   auditLogs: ClinicalAuditLog[];
+  diagnoses: PediatricDiagnosis[];
+  teleconsultations: Teleconsultation[];
 }
 
 export function getLocalDateString(d: Date = new Date()): string {
@@ -202,14 +215,14 @@ export function getInitialSeedData(): DatabaseState {
       id: 'dr-prashant',
       name: 'Dr. Prashant',
       photoUrl: 'https://images.unsplash.com/photo-1537368910025-700350fe46c7?auto=format&fit=crop&w=600&q=80',
-      qualifications: 'MBBS, DNB (Pediatrics), Fellowship in Neonatology',
-      specialty: 'Consultant Pediatrician & Child Health Specialist',
-      experienceYears: 14,
-      summary: 'Specializing in pediatric development, immunization tracking, and acute childhood illnesses with calm, parent-friendly guidance.',
+      qualifications: 'MBBS, MD (Pediatrics), DCH, FIAP',
+      specialty: 'Senior Consultant Pediatrician & Neonatologist',
+      experienceYears: 24,
+      summary: 'Senior experienced pediatrician with 24+ years of clinical excellence in neonatal intensive care, pediatric infectious diseases, pediatric asthma, and growth development.',
       branches: ['kakinada', 'pithapuram'],
       active: true,
       scheduleDescription: 'Daily consultation sessions from 10:00 AM to 07:00 PM across hospital branches.',
-      medicalRegistrationNo: 'APMC-61204',
+      medicalRegistrationNo: 'APMC-45120',
       mobile: '9440112244',
       email: 'prashant@drsridevichildren.com',
       digitalSignatureUrl: '/signatures/dr-prashant.png',
@@ -234,7 +247,7 @@ export function getInitialSeedData(): DatabaseState {
       name: 'Dr. Prashant',
       email: 'prashant@drsridevichildren.com',
       mobile: '9440112244',
-      medicalRegistrationNo: 'APMC-61204',
+      medicalRegistrationNo: 'APMC-45120',
       digitalSignatureUrl: '/signatures/dr-prashant.png',
       isApproved: true,
       isActive: true,
@@ -1147,7 +1160,14 @@ export function getInitialSeedData(): DatabaseState {
     doctors,
     doctorAccounts,
     doctorPasswords,
-    doctorSessionsAuth: [],
+    doctorSessionsAuth: [
+      { token: 'doc_tok_subba_rao_active', doctorId: 'dr-subba-rao', expiresAt: '2099-12-31T23:59:59.999Z' },
+      { token: 'doc_tok_prashant_active', doctorId: 'dr-prashant', expiresAt: '2099-12-31T23:59:59.999Z' },
+    ],
+    parentSessionsAuth: [
+      { token: 'parent_tok_p1_active', parentId: 'p1', expiresAt: '2099-12-31T23:59:59.999Z' },
+      { token: 'parent_tok_p2_active', parentId: 'p2', expiresAt: '2099-12-31T23:59:59.999Z' },
+    ],
     branches,
     schedules,
     appointments,
@@ -1164,6 +1184,8 @@ export function getInitialSeedData(): DatabaseState {
     growthRecords,
     correctionRequests: [],
     auditLogs: [],
+    diagnoses: [...PEDIATRIC_DIAGNOSES],
+    teleconsultations: [],
   };
 }
 
@@ -1195,7 +1217,7 @@ class Database {
                 branchId: 'kakinada',
                 date: currentLocalDate,
                 scheduledStart: '10:00',
-                actualStart: '10:00',
+                actualStart: undefined,
                 status: 'IN_SESSION',
                 currentDelayMinutes: 0,
                 avgConsultationDurationMinutes: 15,
@@ -1246,6 +1268,21 @@ class Database {
           this.persistState();
         }
 
+        if (!this.state.doctorSessionsAuth || this.state.doctorSessionsAuth.length === 0) {
+          this.state.doctorSessionsAuth = fresh.doctorSessionsAuth;
+          this.persistState();
+        }
+
+        if (!this.state.parentSessionsAuth || this.state.parentSessionsAuth.length === 0) {
+          this.state.parentSessionsAuth = fresh.parentSessionsAuth;
+          this.persistState();
+        }
+
+        if (!this.state.diagnoses || this.state.diagnoses.length === 0) {
+          this.state.diagnoses = [...PEDIATRIC_DIAGNOSES];
+          this.persistState();
+        }
+
         // Ensure permanent Child IDs and details for all children
         const seedChildrenMap = new Map<string, any>();
         fresh.parents.forEach((p) => {
@@ -1286,9 +1323,14 @@ class Database {
         if (childUpdated) {
           this.persistState();
         }
+
+        // Guarantee all 10 kids are booked at various times across the hospital and clinical data is active
+        ensureComprehensiveDemoData(this.state);
+        this.persistState();
       }
     } catch (err) {
       this.state = getInitialSeedData();
+      ensureComprehensiveDemoData(this.state);
     }
   }
 

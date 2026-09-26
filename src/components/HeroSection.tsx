@@ -9,6 +9,7 @@ import {
   MapPin,
   ChevronRight,
   Sparkles,
+  Video,
 } from 'lucide-react';
 
 interface HeroSectionProps {
@@ -66,11 +67,19 @@ export const HeroSection: React.FC<HeroSectionProps> = ({ onBookClick, onTrackCl
               <button
                 id="hero-track-appointment-btn"
                 onClick={onTrackClick}
-                className="w-full sm:w-auto px-8 py-4 rounded-2xl bg-white hover:bg-sky-50 text-slate-800 border border-slate-200 hover:border-sky-300 font-semibold text-base shadow-xs transition-all flex items-center justify-center gap-2 cursor-pointer"
+                className="w-full sm:w-auto px-6 py-4 rounded-2xl bg-white hover:bg-sky-50 text-slate-800 border border-slate-200 hover:border-sky-300 font-semibold text-base shadow-xs transition-all flex items-center justify-center gap-2 cursor-pointer"
               >
                 <Activity className="w-5 h-5 text-teal-600" />
-                <span>Track My Appointment</span>
+                <span>Track Queue</span>
               </button>
+
+              <a
+                href="#teleconsultation"
+                className="w-full sm:w-auto px-6 py-4 rounded-2xl bg-teal-50 hover:bg-teal-100 text-teal-900 border border-teal-200 font-semibold text-base shadow-xs transition-all flex items-center justify-center gap-2 cursor-pointer"
+              >
+                <Video className="w-5 h-5 text-teal-700" />
+                <span>Teleconsultation</span>
+              </a>
             </div>
 
             {/* Reassuring Philosophy Statement */}

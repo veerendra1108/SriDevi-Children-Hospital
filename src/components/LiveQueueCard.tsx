@@ -54,12 +54,22 @@ export const LiveQueueCard: React.FC<LiveQueueCardProps> = ({
       ? minutesUntilBooked >= config.rescheduleCutoffMinutes
       : true;
 
+  // Check if patient is next in queue to doctor
+  const isNextInQueue =
+    appointment.status !== 'WITH_DOCTOR' &&
+    appointment.status !== 'COMPLETED' &&
+    (appointment.isNextInQueue || appointment.positionInQueue === 1);
+
   // Status badge indicator color
   let statusBadgeColor = 'bg-emerald-50 text-emerald-800 border-emerald-300 shadow-xs';
   let statusDotColor = 'bg-emerald-500';
   let delayText = 'Doctor running approximately on schedule';
 
-  if (delayDifference > 20) {
+  if (isNextInQueue) {
+    statusBadgeColor = 'bg-amber-100 text-amber-950 border-amber-300 shadow-xs ring-2 ring-amber-400/40';
+    statusDotColor = 'bg-amber-500 animate-pulse';
+    delayText = 'Next in Queue — Please get ready near Consultation Room 1';
+  } else if (delayDifference > 20) {
     statusBadgeColor = 'bg-rose-50 text-rose-900 border-rose-300 shadow-xs';
     statusDotColor = 'bg-rose-500';
     delayText = `Doctor running approximately ${delayDifference} minutes late`;
@@ -164,16 +174,29 @@ export const LiveQueueCard: React.FC<LiveQueueCardProps> = ({
           <span className="text-[10px] text-slate-400 block mt-0.5">Fixed audit slot</span>
         </div>
 
-        {/* Current Expected Consultation Time */}
-        <div className="p-3 bg-teal-50/80 rounded-xl border border-teal-200">
-          <span className="text-[11px] font-bold text-teal-800 block uppercase tracking-wider">
-            Current Expected Time
-          </span>
-          <div className="text-xl sm:text-2xl font-black text-teal-900 font-mono mt-1">
-            {appointment.expectedConsultationTime}
+        {/* Current Expected Consultation Time or Next in Queue */}
+        {isNextInQueue ? (
+          <div className="p-3 bg-amber-50/90 rounded-xl border border-amber-300">
+            <span className="text-[11px] font-bold text-amber-800 block uppercase tracking-wider">
+              Queue Position
+            </span>
+            <div className="text-lg sm:text-xl font-black text-amber-950 uppercase tracking-tight mt-1 flex items-center gap-1.5 font-mono">
+              <span className="w-2.5 h-2.5 rounded-full bg-amber-500 animate-pulse"></span>
+              Next in Queue
+            </div>
+            <span className="text-[10px] text-amber-800 font-medium block mt-0.5">Please be ready at door</span>
           </div>
-          <span className="text-[10px] text-teal-700 block mt-0.5">Dynamically updated</span>
-        </div>
+        ) : (
+          <div className="p-3 bg-teal-50/80 rounded-xl border border-teal-200">
+            <span className="text-[11px] font-bold text-teal-800 block uppercase tracking-wider">
+              Current Expected Time
+            </span>
+            <div className="text-xl sm:text-2xl font-black text-teal-900 font-mono mt-1">
+              {appointment.expectedConsultationTime}
+            </div>
+            <span className="text-[10px] text-teal-700 block mt-0.5">Dynamically updated</span>
+          </div>
+        )}
 
         {/* Please Arrive By / Check-in Completed */}
         {Boolean(
@@ -213,17 +236,31 @@ export const LiveQueueCard: React.FC<LiveQueueCardProps> = ({
       <div className="py-4 space-y-3">
         <div className="flex items-center justify-between text-xs">
           <div className="flex items-center gap-2">
-            <div className="w-8 h-8 rounded-full bg-teal-100 text-teal-800 font-bold flex items-center justify-center text-sm">
-              {appointment.childrenAhead !== undefined ? appointment.childrenAhead : '—'}
+            <div
+              className={`w-8 h-8 rounded-full font-bold flex items-center justify-center text-sm ${
+                isNextInQueue
+                  ? 'bg-amber-100 text-amber-900 ring-2 ring-amber-400'
+                  : 'bg-teal-100 text-teal-800'
+              }`}
+            >
+              {isNextInQueue
+                ? '1'
+                : appointment.childrenAhead !== undefined
+                ? appointment.childrenAhead
+                : '—'}
             </div>
             <div>
               <span className="font-bold text-slate-900 text-sm">
-                {appointment.childrenAhead !== undefined
+                {isNextInQueue
+                  ? 'Next in Queue to Doctor'
+                  : appointment.childrenAhead !== undefined
                   ? `${appointment.childrenAhead} children ahead of you`
                   : 'Checking queue status'}
               </span>
               <span className="text-slate-500 block text-[11px]">
-                {appointment.status === 'WITH_DOCTOR'
+                {isNextInQueue
+                  ? 'Doctor will invite you in shortly — please stay near Room 1'
+                  : appointment.status === 'WITH_DOCTOR'
                   ? 'Currently inside consultation room with doctor'
                   : appointment.status === 'WAITING'
                   ? 'Checked in & fee paid — waiting in hospital lounge'

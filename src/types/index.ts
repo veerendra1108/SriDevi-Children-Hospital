@@ -73,6 +73,7 @@ export interface Child {
   name: string;
   gender?: 'Boy' | 'Girl';
   ageYears?: number;
+  ageMonths?: number;
   dateOfBirth?: string; // YYYY-MM-DD
   bloodGroup?: string;
   hospitalId?: string;
@@ -150,6 +151,7 @@ export interface Appointment {
   rescheduledFromAppointmentId?: string;
   positionInQueue?: number;
   childrenAhead?: number;
+  isNextInQueue?: boolean;
   history: AppointmentHistoryItem[];
   // Clinical vitals recorded for Smart OPD triage / consultation
   heightCm?: number;
@@ -387,8 +389,8 @@ export interface PediatricGrowthRecord {
   id: string;
   childId: string;
   recordedDate: string;
-  ageYears: number;
-  ageMonths: number;
+  ageYears?: number;
+  ageMonths?: number;
   heightCm: number;
   weightKg: number;
   pediatricBmi: number;
@@ -419,6 +421,9 @@ export interface PrescriptionItem {
   timeSlots: ('Morning' | 'Afternoon' | 'Night')[];
   instructionEn: string;
   instructionTe: string;
+  route?: string;       // e.g. "Nasal", "Oral", "Topical", "Inhalation", "Ophthalmic"
+  site?: string;        // e.g. "both nostrils", "affected skin", "both eyes"
+  instructionsHint?: string;
 }
 
 export interface Prescription {
@@ -441,6 +446,15 @@ export interface Prescription {
   specialNotesEn?: string;
   specialNotesTe?: string;
   followUpDate?: string;
+  childAge?: number;
+  childAgeMonths?: number;
+  childGender?: string;
+  weightKg?: number;
+  heightCm?: number;
+  temperatureF?: number;
+  pulseRate?: number;
+  pediatricBmi?: number;
+  bloodGroup?: string;
   status: 'FINALIZED' | 'SUPERSEDED';
   digitalSignatureUrl?: string;
   createdAt: string;
@@ -510,5 +524,35 @@ export interface ClinicalAuditLog {
   childId: string;
   details: string;
   timestamp: string;
+}
+
+export type PatientAvailabilityStatus =
+  | 'AVAILABLE_NOW'
+  | 'AVAILABLE_TODAY_SLOT'
+  | 'AVAILABLE_TOMORROW'
+  | 'WAITING_FOR_CALL';
+
+export interface Teleconsultation {
+  id: string;
+  teleconsultNumber: string;
+  childName: string;
+  childAge?: number;
+  childGender?: string;
+  parentName: string;
+  parentMobile: string;
+  doctorId: string;
+  doctorName: string;
+  specialty?: string;
+  date: string;
+  timeSlot: string;
+  patientAvailability: PatientAvailabilityStatus;
+  preferredChannel: 'WHATSAPP_VIDEO' | 'PHONE_AUDIO';
+  symptoms: string;
+  paymentStatus: 'PAID' | 'PENDING';
+  paymentMethod?: 'UPI_PHONEPE' | 'UPI_GPAY' | 'CASH_DESK';
+  paymentReference?: string;
+  amount: number;
+  status: 'CONFIRMED' | 'IN_CALL' | 'COMPLETED' | 'CANCELLED';
+  createdAt: string;
 }
 

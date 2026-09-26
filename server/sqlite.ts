@@ -22,6 +22,7 @@ import {
   ClinicalAuditLog,
 } from '../src/types/index.js';
 import { DatabaseState } from './db.js';
+import { PediatricDiagnosis, PEDIATRIC_DIAGNOSES } from '../src/data/pediatricDiagnoses.js';
 
 const DB_PATH = process.env.SQLITE_DB_PATH || path.join(process.cwd(), 'hospital.db');
 
@@ -284,6 +285,11 @@ export class SqliteManager {
       CREATE TABLE IF NOT EXISTS clinical_audit_logs (
         id TEXT PRIMARY KEY,
         child_id TEXT NOT NULL,
+        data_json TEXT NOT NULL
+      );
+
+      CREATE TABLE IF NOT EXISTS pediatric_diagnoses (
+        id TEXT PRIMARY KEY,
         data_json TEXT NOT NULL
       );
     `);
@@ -748,6 +754,20 @@ export class SqliteManager {
           });
         }
       }
+
+      // Pediatric Diagnoses
+      if (seed.diagnoses) {
+        const insertDiag = this.db.prepare(`
+          INSERT OR REPLACE INTO pediatric_diagnoses (id, data_json)
+          VALUES (@id, @dataJson)
+        `);
+        for (const d of seed.diagnoses) {
+          insertDiag.run({
+            id: d.id,
+            dataJson: JSON.stringify(d),
+          });
+        }
+      }
     });
 
     tx();
@@ -1065,9 +1085,22 @@ export class SqliteManager {
       auditLogs = [];
     }
 
+    // Pediatric Diagnoses
+    let diagnoses: PediatricDiagnosis[] = [];
+    try {
+      const diagRows = this.db.prepare('SELECT data_json FROM pediatric_diagnoses').all() as any[];
+      diagnoses = diagRows.map((r) => JSON.parse(r.data_json));
+    } catch {
+      diagnoses = [];
+    }
+    if (!diagnoses || diagnoses.length === 0) {
+      diagnoses = [...PEDIATRIC_DIAGNOSES];
+    }
+
     return {
       parents,
       parentPasswords,
+      parentSessionsAuth: [],
       receptionUsers,
       doctors,
       doctorAccounts,
@@ -1089,10 +1122,29 @@ export class SqliteManager {
       growthRecords,
       correctionRequests,
       auditLogs,
+      diagnoses,
+      teleconsultations: (this as any).cachedTeleconsultations || [],
     };
   }
 
   // --- Granular persistence methods ---
+
+  public saveDiagnoses(diagnoses: PediatricDiagnosis[]): void {
+    const tx = this.db.transaction(() => {
+      this.db.prepare('DELETE FROM pediatric_diagnoses').run();
+      const insertDiag = this.db.prepare(`
+        INSERT INTO pediatric_diagnoses (id, data_json)
+        VALUES (@id, @dataJson)
+      `);
+      for (const d of diagnoses) {
+        insertDiag.run({
+          id: d.id,
+          dataJson: JSON.stringify(d),
+        });
+      }
+    });
+    tx();
+  }
 
   public upsertParent(parent: Parent, password?: string): void {
     const tx = this.db.transaction(() => {

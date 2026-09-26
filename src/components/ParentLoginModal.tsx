@@ -5,7 +5,7 @@ import { Parent } from '../types/index.js';
 interface ParentLoginModalProps {
   isOpen: boolean;
   onClose: () => void;
-  onLoginSuccess: (parent: Parent) => void;
+  onLoginSuccess: (parent: Parent, token?: string) => void;
 }
 
 const TEST_PARENTS = [
@@ -58,7 +58,7 @@ export const ParentLoginModal: React.FC<ParentLoginModalProps> = ({
         return;
       }
 
-      onLoginSuccess(data.parent);
+      onLoginSuccess(data.parent, data.token);
       onClose();
     } catch (err: any) {
       setError('Connection error. Please try again.');

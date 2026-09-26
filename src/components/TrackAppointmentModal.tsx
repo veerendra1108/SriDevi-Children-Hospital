@@ -398,7 +398,14 @@ export const TrackAppointmentModal: React.FC<TrackAppointmentModalProps> = ({
                                 Expected Time
                               </span>
                               <span className="text-sm font-extrabold text-teal-900 font-mono">
-                                {appt.expectedConsultationTime || appt.bookedTime}
+                                {(appt.isNextInQueue || appt.positionInQueue === 1) &&
+                                !['WITH_DOCTOR', 'COMPLETED'].includes(appt.status) ? (
+                                  <span className="text-amber-700 bg-amber-50 px-1.5 py-0.5 rounded text-xs font-bold border border-amber-200">
+                                    Next in Queue
+                                  </span>
+                                ) : (
+                                  appt.expectedConsultationTime || appt.bookedTime
+                                )}
                               </span>
                             </div>
                             {Boolean(

@@ -1,0 +1,40 @@
+/* Scoped presentation only; clinical alerts keep their semantic colors. */
+@media screen {
+.doctor-workspace { background:#f4f7f8; color:#243746; line-height:1.55; }
+.doctor-workspace .max-w-7xl { max-width:1440px; }
+.doctor-workspace .doctor-toolbar { background:#fff; color:#243746; border-color:#dce5e7; box-shadow:0 1px 4px #24374608; }
+.doctor-toolbar > div { flex-wrap:wrap; row-gap:14px; }
+.doctor-toolbar [class*="bg-gradient"] { background:#0f766e; box-shadow:none; }
+.doctor-toolbar [class*="bg-black"] { background:#f0f5f5; border-color:#dce5e7; }
+.doctor-toolbar [class*="text-teal-200"], .doctor-toolbar [class*="text-emerald-300"] { color:#365c59; }
+.doctor-toolbar span.text-white { color:#526570; }
+.doctor-toolbar [class*="bg-emerald-500/"] { background:#edf6f3; border-color:#d1e5dd; }
+.doctor-toolbar button[class*="bg-rose"] { color:#526570; background:#f5f7f8; border-color:#dce5e7; }
+.doctor-toolbar button[class*="bg-teal-600"] { background:#0f766e; color:white; }
+.doctor-workspace [class*="rounded-3xl"] { border-radius:16px; }
+.doctor-workspace [class*="shadow-"] { box-shadow:none; }
+.doctor-workspace [class*="font-black"], .doctor-workspace [class*="font-extrabold"] { font-weight:650; }
+.doctor-workspace .text-xs { font-size:13px; }
+.doctor-workspace [class*="text-[10px]"], .doctor-workspace [class*="text-[11px]"] { font-size:12px; }
+.doctor-workspace .tracking-wider { letter-spacing:.035em; }
+.doctor-workspace .doctor-patient-card { background:#fff; border:1px solid #cbdedb; border-left:4px solid #0f766e; }
+.doctor-workspace .doctor-diagnosis-panel { background:#f7faf9; border-color:#dce5e7; }
+.doctor-workspace button[class*="bg-gradient-to-r"] { background:#0f766e; }
+.doctor-workspace button[class*="bg-gradient-to-r"]:hover { background:#115e59; }
+.doctor-workspace button { min-height:36px; }
+.doctor-workspace :is(input,select,textarea) { font-size:14px; min-height:40px; border-color:#cbd5da; }
+.doctor-workspace textarea { line-height:1.7; min-height:88px; }
+.doctor-workspace :is(button,input,select,textarea):focus-visible { outline:2px solid #0f766e; outline-offset:3px; }
+.doctor-workspace :is(.animate-ping,.animate-pulse) { animation:none; }
+.doctor-workspace .doctor-consultation-actions { row-gap:16px; }
+.doctor-workspace .doctor-consultation-actions > div { gap:10px; }
+.doctor-workspace .doctor-patient-panel,.doctor-workspace .doctor-consultation-panel { min-width:0; }
+.doctor-workspace select { text-overflow:ellipsis; }
+@media(max-width:767px) {
+.doctor-toolbar { position:static; }
+.doctor-toolbar > div > div { flex-wrap:wrap; }
+.doctor-workspace .doctor-consultation-actions > div { width:100%; }
+.doctor-workspace .doctor-consultation-actions button { flex:1 1 160px; justify-content:center; }
+.doctor-workspace h2 { overflow-wrap:anywhere; }
+}
+}

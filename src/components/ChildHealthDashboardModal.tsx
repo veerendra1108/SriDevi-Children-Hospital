@@ -37,6 +37,7 @@ interface ChildHealthDashboardModalProps {
   onClose: () => void;
   childId: string;
   doctorUser?: { doctor: Doctor; account: DoctorAccount; token: string } | null;
+  parentToken?: string | null;
   onRefresh?: () => void;
 }
 
@@ -45,6 +46,7 @@ export const ChildHealthDashboardModal: React.FC<ChildHealthDashboardModalProps>
   onClose,
   childId,
   doctorUser,
+  parentToken,
   onRefresh,
 }) => {
   const [data, setData] = useState<{
@@ -94,7 +96,13 @@ export const ChildHealthDashboardModal: React.FC<ChildHealthDashboardModalProps>
   const loadChildRecord = async () => {
     setLoading(true);
     try {
-      const res = await fetch(`/api/emr/children/${childId}`);
+      const headers: Record<string, string> = {};
+      if (doctorUser?.token) {
+        headers['x-doctor-token'] = doctorUser.token;
+      } else if (parentToken) {
+        headers['x-parent-token'] = parentToken;
+      }
+      const res = await fetch(`/api/emr/children/${childId}`, { headers });
       const resData = await res.json();
       if (resData.success) {
         setData(resData);
@@ -133,8 +141,8 @@ export const ChildHealthDashboardModal: React.FC<ChildHealthDashboardModalProps>
           doctorName: doctorUser?.doctor.name || 'Dr. K. Subba Rao',
         }),
       });
-      const resJson = await res.json();
-      if (!res.ok || !resJson.success) throw new Error(resJson.message || 'Failed to add allergy');
+      const resJson = await res.json().catch(() => null);
+      if (!res.ok || !resJson?.success) throw new Error(resJson?.message || `Failed to add allergy (HTTP ${res.status})`);
 
       setShowAddAllergy(false);
       setNewSubstance('');
@@ -167,8 +175,8 @@ export const ChildHealthDashboardModal: React.FC<ChildHealthDashboardModalProps>
           doctorName: doctorUser?.doctor.name || 'Dr. K. Subba Rao',
         }),
       });
-      const resJson = await res.json();
-      if (!res.ok || !resJson.success) throw new Error(resJson.message || 'Failed to add condition');
+      const resJson = await res.json().catch(() => null);
+      if (!res.ok || !resJson?.success) throw new Error(resJson?.message || `Failed to add condition (HTTP ${res.status})`);
 
       setShowAddCondition(false);
       setNewConditionName('');
@@ -278,10 +286,10 @@ export const ChildHealthDashboardModal: React.FC<ChildHealthDashboardModalProps>
                 <div className="flex items-center gap-2.5 flex-wrap">
                   <h2 className="text-xl sm:text-2xl font-black tracking-tight">{data?.child?.name || 'Loading Patient...'}</h2>
                   <span className="px-2.5 py-0.5 rounded-full bg-teal-500/30 border border-teal-300/30 text-teal-100 text-xs font-semibold">
-                    {data?.child?.gender || 'Child'}, {data?.child?.ageYears || 3} Yrs
+                    {data?.child?.gender || 'Child'}, {typeof data?.child?.ageYears === 'number' && data.child.ageYears >= 0 ? `${data.child.ageYears} Yrs` : 'Age: Not recorded'}
                   </span>
                   <span className="px-2 py-0.5 rounded-md bg-rose-500/20 text-rose-200 border border-rose-400/30 text-xs font-bold">
-                    Blood: {data?.child?.bloodGroup || 'B+'}
+                    Blood: {data?.child?.bloodGroup || 'Not recorded'}
                   </span>
                 </div>
 
@@ -301,7 +309,7 @@ export const ChildHealthDashboardModal: React.FC<ChildHealthDashboardModalProps>
                   <span>•</span>
                   <span>Parent: <strong>{data?.parent?.name}</strong> ({data?.parent?.mobile})</span>
                   <span>•</span>
-                  <span>DOB: {data?.child?.dateOfBirth || '2023-04-10'}</span>
+                  <span>DOB: {data?.child?.dateOfBirth || 'Not recorded'}</span>
                 </div>
               </div>
             </div>
@@ -609,7 +617,11 @@ export const ChildHealthDashboardModal: React.FC<ChildHealthDashboardModalProps>
                           data.growthRecords.map((rec) => (
                             <tr key={rec.id} className="hover:bg-slate-50/80 transition">
                               <td className="p-3.5 font-bold text-slate-900">{rec.recordedDate}</td>
-                              <td className="p-3.5 text-slate-600">{rec.ageYears} Yrs ({rec.ageMonths}m)</td>
+                              <td className="p-3.5 text-slate-600">
+                                {typeof rec.ageYears === 'number' && rec.ageYears >= 0
+                                  ? `${rec.ageYears} Yrs (${rec.ageMonths ?? rec.ageYears * 12}m)`
+                                  : 'Not recorded'}
+                              </td>
                               <td className="p-3.5 font-semibold text-slate-800">
                                 {rec.heightCm} cm
                                 {rec.heightDeltaCm !== undefined && (
