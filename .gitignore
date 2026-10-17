@@ -3,14 +3,28 @@ build/
 dist/
 coverage/
 .DS_Store
+# Logs & Databases
 *.log
 *.db
 *.db-journal
 *.db-wal
 *.db-shm
 *.sqlite
+*.sqlite3
+
+# Environment and secrets
 .env*
 !.env.example
+*.pem
+*.key
+*.cert
+credentials.json
+*secret*
+
+# Patient data exports and backups
+/data/private/
+/exports/
+/backups/
 
 # Playwright
 /test-results/
@@ -18,3 +32,4 @@ coverage/
 /blob-report/
 /playwright/.cache/
 /playwright/.auth/
+
