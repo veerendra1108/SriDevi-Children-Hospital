@@ -1,7 +1,38 @@
-export type BranchId = 'kakinada' | 'pithapuram';
+export type BranchId = 'kakinada' | 'pithapuram' | string;
+
+export interface Hospital {
+  id: string;
+  slug: string; // e.g. "sri-devi", "city-care"
+  name: string;
+  address: string;
+  city: string;
+  state: string;
+  pincode: string;
+  phone: string;
+  adminName: string;
+  adminEmail: string;
+  adminMobile: string;
+  hospitalType: string;
+  logoUrl?: string;
+  status: 'PENDING_ONBOARDING' | 'ACTIVE' | 'SUSPENDED';
+  onboardingStep: number;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface HospitalAdminUser {
+  id: string;
+  hospitalId: string;
+  name: string;
+  email: string;
+  mobile: string;
+  role: 'HOSPITAL_ADMIN';
+  createdAt: string;
+}
 
 export interface Doctor {
   id: string;
+  hospitalId?: string;
   name: string;
   photoUrl: string;
   qualifications: string;
@@ -15,10 +46,15 @@ export interface Doctor {
   mobile?: string;
   email?: string;
   digitalSignatureUrl?: string;
+  // Customizable slot duration per doctor (e.g. 5, 10, 15, 20, 30 min)
+  slotDurationMinutes?: number;
+  availableDays?: number[];
+  consultationFee?: number;
 }
 
 export interface DoctorAccount {
   id: string; // matches doctor.id (e.g. 'dr-subba-rao')
+  hospitalId?: string;
   doctorId: string;
   name: string;
   fullName?: string;
@@ -43,6 +79,7 @@ export interface DoctorAuthSession {
 
 export interface HospitalBranch {
   id: BranchId;
+  hospitalId?: string;
   name: string;
   address: string;
   landmark: string;
@@ -55,6 +92,7 @@ export interface HospitalBranch {
 
 export interface DoctorSchedule {
   id: string;
+  hospitalId?: string;
   doctorId: string;
   branchId: BranchId;
   daysOfWeek: number[]; // 0=Sunday, 1=Monday, ..., 6=Saturday
@@ -122,9 +160,14 @@ export interface AppointmentHistoryItem {
 
 export interface Appointment {
   id: string;
+  hospitalId?: string;
+  hospitalName?: string;
   appointmentNumber: string;
+  trackingSecret?: string;
   childId: string;
   childName: string;
+  patientAge?: number;
+  guardianName?: string;
   parentId: string;
   parentName: string;
   parentMobile: string;
@@ -139,7 +182,7 @@ export interface Appointment {
   status: AppointmentStatus;
   paymentStatus: PaymentStatus;
   paymentMethod?: PaymentMethod;
-  bookingSource: 'ONLINE' | 'RECEPTION_PHONE' | 'WALK_IN';
+  bookingSource: 'ONLINE' | 'RECEPTION_PHONE' | 'PHONE' | 'WALK_IN';
   advanceNoticePreferenceMinutes: number; // 10, 20, 30, 45, 60 (default 30)
   isEmergency?: boolean;
   emergencyReason?: string;
@@ -164,6 +207,7 @@ export interface Appointment {
 }
 
 export interface DoctorSession {
+  hospitalId?: string;
   doctorId: string;
   branchId: BranchId;
   date: string;

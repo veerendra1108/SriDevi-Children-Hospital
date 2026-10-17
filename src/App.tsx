@@ -10,6 +10,8 @@ import {
   HospitalReview,
   SystemConfiguration,
   DoctorAccount,
+  Hospital,
+  HospitalAdminUser,
 } from './types/index.js';
 import { Header } from './components/Header.js';
 import { Footer } from './components/Footer.js';
@@ -33,32 +35,71 @@ import { AnalyticsModal } from './components/AnalyticsModal.js';
 import { TrackAppointmentModal } from './components/TrackAppointmentModal.js';
 import { TeleconsultationSection } from './components/TeleconsultationSection.js';
 
+// Doctormate SaaS Phase 1 Components
+import { DoctormateHome } from './components/DoctormateHome.js';
+import { PublicHospitalBooking } from './components/PublicHospitalBooking.js';
+import { SecureTrackerView } from './components/SecureTrackerView.js';
+import { HospitalRegistrationModal } from './components/HospitalRegistrationModal.js';
+import { HospitalOnboardingWizard } from './components/HospitalOnboardingWizard.js';
+import { HospitalAdminDashboard } from './components/HospitalAdminDashboard.js';
+import { HospitalLoginModal } from './components/HospitalLoginModal.js';
+
 export default function App() {
   const [activeTab, setActiveTab] = useState<string>(() => {
     const saved = localStorage.getItem('sri_devi_active_tab');
-    return (saved === 'doctor-desk' || saved === 'reception-desk' || saved === 'parent-portal') ? saved : 'home';
+    return (
+      saved === 'doctor-desk' ||
+      saved === 'reception-desk' ||
+      saved === 'parent-portal' ||
+      saved === 'hospital-admin' ||
+      saved === 'hospital-booking' ||
+      saved === 'track-appointment' ||
+      saved === 'hospital-legacy'
+    )
+      ? saved
+      : 'saas-home';
   });
+
   const [parentUser, setParentUser] = useState<Parent | null>(null);
   const [parentToken, setParentToken] = useState<string | null>(() => {
     return localStorage.getItem('sri_devi_parent_token');
   });
+
   const [receptionUser, setReceptionUser] = useState<{
     username: string;
     branchId: BranchId;
     name: string;
-  } | null>(null);
+    hospitalId?: string;
+    hospitalName?: string;
+  } | null>(() => {
+    const saved = localStorage.getItem('doctormate_reception_user');
+    return saved ? JSON.parse(saved) : null;
+  });
+
   const [doctorUser, setDoctorUser] = useState<{
     doctor: Doctor;
     account: DoctorAccount;
     token: string;
   } | null>(null);
 
-  // Synchronize activeTab in localStorage to maintain session across refreshes and clock ticks
-  useEffect(() => {
-    localStorage.setItem('sri_devi_active_tab', activeTab);
-  }, [activeTab]);
+  // Hospital Admin session
+  const [hospitalAdmin, setHospitalAdmin] = useState<{
+    admin: HospitalAdminUser;
+    hospital: Hospital;
+    token: string;
+  } | null>(() => {
+    const saved = localStorage.getItem('doctormate_admin_session');
+    return saved ? JSON.parse(saved) : null;
+  });
+
+  // Active hospital for public booking view
+  const [activeHospitalSlug, setActiveHospitalSlug] = useState<string>('sri-devi');
+  const [trackingToken, setTrackingToken] = useState<string | undefined>(undefined);
+  const [onboardingHospital, setOnboardingHospital] = useState<Hospital | null>(null);
 
   // Modals
+  const [isHospitalRegOpen, setIsHospitalRegOpen] = useState(false);
+  const [isHospitalLoginOpen, setIsHospitalLoginOpen] = useState(false);
   const [isParentLoginOpen, setIsParentLoginOpen] = useState(false);
   const [isReceptionLoginOpen, setIsReceptionLoginOpen] = useState(false);
   const [isDoctorLoginOpen, setIsDoctorLoginOpen] = useState(false);
@@ -91,12 +132,17 @@ export default function App() {
     activeScenario: null,
   });
 
+  // Synchronize activeTab in localStorage
+  useEffect(() => {
+    localStorage.setItem('sri_devi_active_tab', activeTab);
+  }, [activeTab]);
+
   // Initial data loading
   useEffect(() => {
     loadHospitalData();
     restoreDoctorSession();
 
-    // Cross-dashboard hospital clock synchronization (QT-D03)
+    // Cross-dashboard hospital clock synchronization
     const syncHospitalClock = async () => {
       try {
         const res = await fetch('/api/simulation/config');
@@ -133,10 +179,6 @@ export default function App() {
       const data = await res.json();
       if (data.success && data.doctor && data.account) {
         setDoctorUser({ doctor: data.doctor, account: data.account, token: savedToken });
-        const savedTab = localStorage.getItem('sri_devi_active_tab');
-        if (!savedTab || savedTab === 'doctor-desk') {
-          setActiveTab('doctor-desk');
-        }
       }
     } catch (err) {
       console.error('Session restore failed:', err);
@@ -145,7 +187,6 @@ export default function App() {
 
   const loadHospitalData = async () => {
     try {
-      // First try unified public/info endpoint
       const res = await fetch('/api/public/info');
       const contentType = res.headers.get('content-type');
       if (res.ok && contentType && contentType.includes('application/json')) {
@@ -156,42 +197,6 @@ export default function App() {
         if (Array.isArray(data.gallery)) setGallery(data.gallery);
         if (Array.isArray(data.reviews)) setReviews(data.reviews);
         if (data.config && data.config.simulatedTime) setConfig(data.config);
-        return;
-      }
-
-      // Fallback: Individual endpoints
-      const [docRes, branchRes, schRes, galRes, revRes, cfgRes] = await Promise.all([
-        fetch('/api/doctors').catch(() => null),
-        fetch('/api/branches').catch(() => null),
-        fetch('/api/schedules').catch(() => null),
-        fetch('/api/gallery').catch(() => null),
-        fetch('/api/reviews').catch(() => null),
-        fetch('/api/simulation/config').catch(() => null),
-      ]);
-
-      if (docRes && docRes.ok && docRes.headers.get('content-type')?.includes('application/json')) {
-        const docs = await docRes.json();
-        if (Array.isArray(docs)) setDoctors(docs);
-      }
-      if (branchRes && branchRes.ok && branchRes.headers.get('content-type')?.includes('application/json')) {
-        const brs = await branchRes.json();
-        if (Array.isArray(brs)) setBranches(brs);
-      }
-      if (schRes && schRes.ok && schRes.headers.get('content-type')?.includes('application/json')) {
-        const schs = await schRes.json();
-        if (Array.isArray(schs)) setSchedules(schs);
-      }
-      if (galRes && galRes.ok && galRes.headers.get('content-type')?.includes('application/json')) {
-        const gals = await galRes.json();
-        if (Array.isArray(gals)) setGallery(gals);
-      }
-      if (revRes && revRes.ok && revRes.headers.get('content-type')?.includes('application/json')) {
-        const revs = await revRes.json();
-        if (Array.isArray(revs)) setReviews(revs);
-      }
-      if (cfgRes && cfgRes.ok && cfgRes.headers.get('content-type')?.includes('application/json')) {
-        const cfg = await cfgRes.json();
-        if (cfg && cfg.simulatedTime) setConfig(cfg);
       }
     } catch (err) {
       console.warn('Initial hospital data fetch error:', err);
@@ -204,7 +209,11 @@ export default function App() {
       return;
     }
     if (view === 'track') {
-      setIsTrackModalOpen(true);
+      setActiveTab('track-appointment');
+      return;
+    }
+    if (view === 'saas-home') {
+      setActiveTab('saas-home');
       return;
     }
     if (view === 'parent-dashboard') {
@@ -219,7 +228,7 @@ export default function App() {
       if (receptionUser) {
         setActiveTab('reception-desk');
       } else {
-        setIsReceptionLoginOpen(true);
+        setIsHospitalLoginOpen(true);
       }
       return;
     }
@@ -233,8 +242,8 @@ export default function App() {
     }
 
     // Scroll to landing page sections
-    if (activeTab !== 'home') {
-      setActiveTab('home');
+    if (activeTab !== 'hospital-legacy') {
+      setActiveTab('hospital-legacy');
       setTimeout(() => {
         if (view === 'home') {
           window.scrollTo({ top: 0, behavior: 'smooth' });
@@ -367,9 +376,32 @@ export default function App() {
     username: string;
     branchId: BranchId;
     name: string;
+    hospitalId?: string;
+    hospitalName?: string;
   }) => {
     setReceptionUser(user);
+    localStorage.setItem('doctormate_reception_user', JSON.stringify(user));
     setActiveTab('reception-desk');
+  };
+
+  const handleAdminLoginSuccess = (admin: HospitalAdminUser, hospital: Hospital, token: string) => {
+    const session = { admin, hospital, token };
+    setHospitalAdmin(session);
+    localStorage.setItem('doctormate_admin_session', JSON.stringify(session));
+    setActiveTab('hospital-admin');
+  };
+
+  const handleLogoutAdmin = () => {
+    localStorage.removeItem('doctormate_admin_session');
+    setHospitalAdmin(null);
+    setActiveTab('saas-home');
+  };
+
+  const handleLogoutReception = () => {
+    localStorage.removeItem('doctormate_reception_user');
+    localStorage.removeItem('sri_devi_active_tab');
+    setReceptionUser(null);
+    setActiveTab('saas-home');
   };
 
   const handleLogoutParent = async () => {
@@ -385,18 +417,7 @@ export default function App() {
     localStorage.removeItem('sri_devi_active_tab');
     setParentToken(null);
     setParentUser(null);
-    setActiveTab('home');
-  };
-
-  const handleLogoutReception = () => {
-    localStorage.removeItem('sri_devi_active_tab');
-    setReceptionUser(null);
-    setActiveTab('home');
-  };
-
-  const handleDoctorLoginSuccess = (doctor: Doctor, account: DoctorAccount, token: string) => {
-    setDoctorUser({ doctor, account, token });
-    setActiveTab('doctor-desk');
+    setActiveTab('saas-home');
   };
 
   const handleLogoutDoctor = async () => {
@@ -413,7 +434,7 @@ export default function App() {
     localStorage.removeItem('sri_devi_doctor_token');
     localStorage.removeItem('sri_devi_active_tab');
     setDoctorUser(null);
-    setActiveTab('home');
+    setActiveTab('saas-home');
   };
 
   const handleRefreshParent = async () => {
@@ -428,6 +449,10 @@ export default function App() {
       console.error(err);
     }
   };
+
+  // Quick switch navigation bar when viewing sub-pages
+  const isSaasHome = activeTab === 'saas-home';
+  const isLegacyWebsite = activeTab === 'hospital-legacy';
 
   return (
     <div className="min-h-screen flex flex-col bg-white text-slate-900 selection:bg-teal-100 selection:text-teal-900">
@@ -444,24 +469,169 @@ export default function App() {
         onConfigUpdate={handleConfigUpdate}
       />
 
-      {/* Global Header */}
-      <Header
-        currentView={activeTab}
-        onNavigate={handleNavigate}
-        parentUser={parentUser}
-        receptionUser={receptionUser}
-        doctorUser={doctorUser}
-        onOpenParentLogin={() => setIsParentLoginOpen(true)}
-        onOpenReceptionLogin={() => setIsReceptionLoginOpen(true)}
-        onOpenDoctorLogin={() => setIsDoctorLoginOpen(true)}
-        onLogoutParent={handleLogoutParent}
-        onLogoutReception={handleLogoutReception}
-        onLogoutDoctor={handleLogoutDoctor}
-      />
+      {/* Global Context Bar when navigating away from SaaS Home */}
+      {!isSaasHome && !isLegacyWebsite && (
+        <div className="bg-slate-900 text-white text-xs py-2 px-4 border-b border-slate-800">
+          <div className="max-w-7xl mx-auto flex items-center justify-between">
+            <div className="flex items-center gap-3">
+              <button
+                onClick={() => setActiveTab('saas-home')}
+                className="font-bold text-teal-400 hover:text-white transition flex items-center gap-1"
+              >
+                ← Doctormate Platform
+              </button>
+              <span className="text-slate-600">|</span>
+              <span className="text-slate-300 font-medium capitalize">
+                {activeTab.replace('-', ' ')}
+              </span>
+            </div>
+
+            <div className="flex items-center gap-3">
+              <button
+                onClick={() => setActiveTab('track-appointment')}
+                className="text-teal-200 hover:text-white font-medium"
+              >
+                Track Live Queue
+              </button>
+              <span className="text-slate-600">|</span>
+              <button
+                onClick={() => setIsHospitalLoginOpen(true)}
+                className="text-slate-300 hover:text-white font-medium"
+              >
+                Hospital Portal
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Header ONLY shown for legacy hospital site */}
+      {isLegacyWebsite && (
+        <Header
+          currentView={activeTab}
+          onNavigate={handleNavigate}
+          parentUser={parentUser}
+          receptionUser={receptionUser}
+          doctorUser={doctorUser}
+          onOpenParentLogin={() => setIsParentLoginOpen(true)}
+          onOpenReceptionLogin={() => setIsReceptionLoginOpen(true)}
+          onOpenDoctorLogin={() => setIsDoctorLoginOpen(true)}
+          onLogoutParent={handleLogoutParent}
+          onLogoutReception={handleLogoutReception}
+          onLogoutDoctor={handleLogoutDoctor}
+        />
+      )}
 
       {/* Main View Switcher */}
       <main className="flex-1">
-        {activeTab === 'parent-portal' && parentUser ? (
+        {activeTab === 'saas-home' ? (
+          <DoctormateHome
+            onOpenRegister={() => setIsHospitalRegOpen(true)}
+            onOpenLogin={() => setIsHospitalLoginOpen(true)}
+            onOpenTracker={(tok) => {
+              setTrackingToken(tok);
+              setActiveTab('track-appointment');
+            }}
+            onSelectHospital={(slug) => {
+              setActiveHospitalSlug(slug);
+              setActiveTab('hospital-booking');
+            }}
+            onGoToReceptionDemo={() => {
+              setReceptionUser({
+                username: 'reception.kakinada',
+                branchId: 'kakinada-main',
+                name: 'Sri Devi Reception Desk',
+                hospitalId: 'hosp_sdch',
+                hospitalName: 'Sri Devi Children Hospital',
+              });
+              setActiveTab('reception-desk');
+            }}
+            onGoToAdminDemo={() => {
+              handleAdminLoginSuccess(
+                {
+                  id: 'admin_sdch',
+                  hospitalId: 'hosp_sdch',
+                  name: 'Dr. M. Subba Rao',
+                  email: 'admin@sridevi.com',
+                  mobile: '9440112233',
+                  role: 'HOSPITAL_ADMIN',
+                  createdAt: new Date().toISOString(),
+                },
+                {
+                  id: 'hosp_sdch',
+                  slug: 'sri-devi',
+                  name: 'Sri Devi Children Hospital',
+                  address: 'Main Road',
+                  city: 'Kakinada',
+                  state: 'Andhra Pradesh',
+                  pincode: '533001',
+                  phone: '+91 944 011 2233',
+                  adminName: 'Dr. M. Subba Rao',
+                  adminEmail: 'admin@sridevi.com',
+                  adminMobile: '9440112233',
+                  hospitalType: 'Children Hospital & Research Institute',
+                  status: 'ACTIVE',
+                  onboardingStep: 6,
+                  createdAt: new Date().toISOString(),
+                  updatedAt: new Date().toISOString(),
+                },
+                'demo-token'
+              );
+            }}
+          />
+        ) : activeTab === 'hospital-booking' ? (
+          <PublicHospitalBooking
+            hospitalSlug={activeHospitalSlug}
+            onBackToHome={() => setActiveTab('saas-home')}
+            onOpenTracker={(token) => {
+              setTrackingToken(token);
+              setActiveTab('track-appointment');
+            }}
+          />
+        ) : activeTab === 'track-appointment' ? (
+          <SecureTrackerView
+            initialToken={trackingToken}
+            onBack={() => setActiveTab('saas-home')}
+            onBookNew={() => setActiveTab('hospital-booking')}
+          />
+        ) : activeTab === 'hospital-admin' ? (
+          hospitalAdmin ? (
+            <HospitalAdminDashboard
+              hospitalId={hospitalAdmin.hospital.id}
+              adminName={hospitalAdmin.admin.name}
+              onLogout={handleLogoutAdmin}
+              onNavigateToBooking={(slug) => {
+                setActiveHospitalSlug(slug);
+                setActiveTab('hospital-booking');
+              }}
+              onLaunchOnboarding={(hosp) => {
+                setOnboardingHospital(hosp);
+                setActiveTab('onboarding');
+              }}
+            />
+          ) : (
+            <div className="py-20 text-center">
+              <p className="text-slate-600 mb-4">Please log in to access the Hospital Admin Portal.</p>
+              <button
+                onClick={() => setIsHospitalLoginOpen(true)}
+                className="px-6 py-2.5 bg-teal-600 text-white rounded-xl font-semibold"
+              >
+                Admin Sign In
+              </button>
+            </div>
+          )
+        ) : activeTab === 'onboarding' && onboardingHospital ? (
+          <HospitalOnboardingWizard
+            hospital={onboardingHospital}
+            onCompleted={(updatedHosp) => {
+              if (hospitalAdmin) {
+                setHospitalAdmin({ ...hospitalAdmin, hospital: updatedHosp });
+              }
+              setActiveTab('hospital-admin');
+            }}
+            onCancel={() => setActiveTab('hospital-admin')}
+          />
+        ) : activeTab === 'parent-portal' && parentUser ? (
           <ParentDashboard
             parentUser={parentUser}
             parentToken={parentToken}
@@ -488,57 +658,36 @@ export default function App() {
             onLogout={handleLogoutDoctor}
           />
         ) : (
-          /* Public Website View */
+          /* Legacy Sri Devi Website View */
           <div>
             <HeroSection
               onBookClick={() => handleOpenBooking()}
               onTrackClick={() => setIsTrackModalOpen(true)}
             />
-
             <TrustSection />
-
             <DoctorsSection
               doctors={doctors}
               schedules={schedules}
               onBookWithDoctor={(docId) => handleOpenBooking(docId)}
             />
-
             <TeleconsultationSection
               doctors={doctors}
               simulatedDate={config.simulatedDate}
               onBookInPerson={() => handleOpenBooking()}
             />
-
             <LocationsSection
               branches={branches}
               onBookAtBranch={(bId) => handleOpenBooking(undefined, bId)}
             />
-
             <GallerySection gallery={gallery} />
-
             <ReviewsSection reviews={reviews} />
-
             <ContactSection branches={branches} />
           </div>
         )}
       </main>
 
-      {/* Footer: Dedicated clean footer for portals; full marketing footer for public website */}
-      {activeTab === 'parent-portal' ? (
-        <footer className="bg-white border-t border-slate-200 py-6 text-center text-xs text-slate-500">
-          <div className="max-w-7xl mx-auto px-4 flex flex-col sm:flex-row justify-between items-center gap-2">
-            <span>Sri Devi Children Hospital • Confidential Patient Portal</span>
-            <span>Emergency Helpdesk: <strong className="text-slate-700">+91 944 011 2233</strong></span>
-          </div>
-        </footer>
-      ) : activeTab === 'reception-desk' ? (
-        <footer className="bg-slate-900 border-t border-slate-800 py-4 text-center text-xs text-slate-400">
-          <div className="max-w-7xl mx-auto px-4 flex flex-col sm:flex-row justify-between items-center gap-2">
-            <span>Hospital Operations Console • Reception Desk</span>
-            <span>Kakinada &amp; Pithapuram Branches</span>
-          </div>
-        </footer>
-      ) : (
+      {/* Footer ONLY for legacy website */}
+      {isLegacyWebsite && (
         <Footer
           onNavigate={handleNavigate}
           onOpenParentLogin={() => setIsParentLoginOpen(true)}
@@ -546,7 +695,40 @@ export default function App() {
         />
       )}
 
-      {/* Modals */}
+      {/* Hospital Registration Modal */}
+      <HospitalRegistrationModal
+        isOpen={isHospitalRegOpen}
+        onClose={() => setIsHospitalRegOpen(false)}
+        onRegistrationSuccess={(newHosp, tok) => {
+          setIsHospitalRegOpen(false);
+          setOnboardingHospital(newHosp);
+          setHospitalAdmin({
+            admin: {
+              id: `admin_${Date.now()}`,
+              hospitalId: newHosp.id,
+              name: newHosp.adminName,
+              email: newHosp.adminEmail,
+              mobile: newHosp.adminMobile,
+              role: 'HOSPITAL_ADMIN',
+              createdAt: new Date().toISOString(),
+            },
+            hospital: newHosp,
+            token: tok,
+          });
+          setActiveTab('onboarding');
+        }}
+      />
+
+      {/* Hospital Login Modal (Admin & Reception) */}
+      <HospitalLoginModal
+        isOpen={isHospitalLoginOpen}
+        onClose={() => setIsHospitalLoginOpen(false)}
+        onAdminLoginSuccess={handleAdminLoginSuccess}
+        onReceptionLoginSuccess={handleReceptionLoginSuccess}
+        onOpenRegister={() => setIsHospitalRegOpen(true)}
+      />
+
+      {/* Legacy Modals */}
       <ParentLoginModal
         isOpen={isParentLoginOpen}
         onClose={() => setIsParentLoginOpen(false)}
@@ -559,6 +741,15 @@ export default function App() {
         onLoginSuccess={handleReceptionLoginSuccess}
       />
 
+      <DoctorLoginModal
+        isOpen={isDoctorLoginOpen}
+        onClose={() => setIsDoctorLoginOpen(false)}
+        onLoginSuccess={(doctor, account, token) => {
+          setDoctorUser({ doctor, account, token });
+          setActiveTab('doctor-desk');
+        }}
+      />
+
       <BookAppointmentModal
         isOpen={isBookModalOpen}
         onClose={() => setIsBookModalOpen(false)}
@@ -569,12 +760,8 @@ export default function App() {
         initialDoctorId={bookingDoctorId}
         initialBranchId={bookingBranchId}
         simulatedDate={config.simulatedDate}
-        onBookingSuccess={(appointment, parent) => {
-          if (parent) {
-            setParentUser(parent);
-          } else if (parentUser) {
-            handleRefreshParent();
-          }
+        onBookingSuccess={() => {
+          if (parentUser) handleRefreshParent();
         }}
         onViewDashboard={() => {
           setActiveTab('parent-portal');
@@ -589,7 +776,7 @@ export default function App() {
         }}
         appointment={rescheduleTargetAppt}
         onRescheduleSuccess={() => {
-          handleRefreshParent();
+          if (parentUser) handleRefreshParent();
         }}
       />
 
@@ -615,12 +802,6 @@ export default function App() {
       <AnalyticsModal
         isOpen={isAnalyticsOpen}
         onClose={() => setIsAnalyticsOpen(false)}
-      />
-
-      <DoctorLoginModal
-        isOpen={isDoctorLoginOpen}
-        onClose={() => setIsDoctorLoginOpen(false)}
-        onLoginSuccess={handleDoctorLoginSuccess}
       />
     </div>
   );

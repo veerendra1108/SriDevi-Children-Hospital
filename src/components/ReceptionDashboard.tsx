@@ -41,10 +41,17 @@ import {
 } from 'lucide-react';
 import { VaccineRemindersDesk } from './VaccineRemindersDesk.js';
 import { RegisterVaccineModal } from './RegisterVaccineModal.js';
+import { TelephoneBookingModal } from './TelephoneBookingModal.js';
 import { Parent } from '../types/index.js';
 
 interface ReceptionDashboardProps {
-  receptionUser: { username: string; branchId: BranchId; name: string };
+  receptionUser: {
+    username: string;
+    branchId: BranchId;
+    name: string;
+    hospitalId?: string;
+    hospitalName?: string;
+  };
   doctors: Doctor[];
   branches: HospitalBranch[];
   config: SystemConfiguration;
@@ -197,8 +204,9 @@ export const ReceptionDashboard: React.FC<ReceptionDashboardProps> = ({
   const fetchLiveQueue = async () => {
     try {
       const dateParam = isAllDates ? 'all' : selectedDateFilter;
+      const hospParam = receptionUser.hospitalId ? `&hospitalId=${receptionUser.hospitalId}` : '';
       const res = await fetch(
-        `/api/queue/live?doctorId=${selectedDoctorId}&branchId=${selectedBranchId}&date=${dateParam}`
+        `/api/queue/live?doctorId=${selectedDoctorId}&branchId=${selectedBranchId}&date=${dateParam}${hospParam}`
       );
       const data = await res.json();
       setQueueData(data);
@@ -1466,8 +1474,22 @@ export const ReceptionDashboard: React.FC<ReceptionDashboardProps> = ({
         </>
         )}
 
-        {/* Modal: Telephone Booking */}
-        {showPhoneBookingModal && (
+        {/* Modal: Telephone Booking (Doctormate Smart OPD Multi-Hospital) */}
+        <TelephoneBookingModal
+          isOpen={showPhoneBookingModal}
+          onClose={() => setShowPhoneBookingModal(false)}
+          hospitalId={receptionUser.hospitalId || 'hosp_sdch'}
+          hospitalName={receptionUser.hospitalName || 'Doctormate Hospital'}
+          doctors={doctors.filter((d) => !receptionUser.hospitalId || (d.hospitalId || 'hosp_sdch') === receptionUser.hospitalId)}
+          selectedDoctorId={selectedDoctorId !== 'all' ? selectedDoctorId : undefined}
+          onBookingSuccess={() => {
+            fetchLiveQueue();
+            showToast('Telephone appointment confirmed successfully.');
+          }}
+        />
+
+        {/* Legacy Phone Booking Modal (Disabled) */}
+        {false && (
           <div className="fixed inset-0 z-50 bg-slate-950/70 backdrop-blur-xs flex items-center justify-center p-4">
             <div className="bg-white rounded-3xl max-w-lg w-full p-6 sm:p-8 space-y-5 shadow-2xl relative animate-in zoom-in-95">
               <button

@@ -30,9 +30,11 @@ export class SchedulingService {
       (s) => s.doctorId === doctorId && s.branchId === branchId && s.date === date
     );
     if (!session) {
+      const doctorObj = state.doctors.find((d) => d.id === doctorId);
       const doctorSchedule = state.schedules.find(
         (s) => s.doctorId === doctorId && s.branchId === branchId && s.isAvailable
       );
+      const customDuration = doctorSchedule?.slotDurationMinutes || doctorObj?.slotDurationMinutes || 15;
       session = {
         doctorId,
         branchId,
@@ -41,7 +43,7 @@ export class SchedulingService {
         actualStart: undefined,
         status: 'IN_SESSION',
         currentDelayMinutes: 0,
-        avgConsultationDurationMinutes: doctorSchedule?.slotDurationMinutes || 15,
+        avgConsultationDurationMinutes: customDuration,
         bufferAvailableMinutes: 20,
         emergencyAdjustmentCount: 0,
       };
@@ -94,7 +96,16 @@ export class SchedulingService {
     const isFuture = date > state.config.simulatedDate;
     const scheduledStartMin = timeToMinutes(session.scheduledStart || '10:00');
     const simulatedNowMin = isToday ? timeToMinutes(state.config.simulatedTime) : scheduledStartMin;
-    const expectedDuration = state.config.slotDurationMinutes || 15;
+    const doctorObj = state.doctors.find((d) => d.id === doctorId);
+    const doctorSchedule = state.schedules.find(
+      (s) => s.doctorId === doctorId && s.branchId === branchId
+    );
+    const expectedDuration =
+      doctorSchedule?.slotDurationMinutes ||
+      doctorObj?.slotDurationMinutes ||
+      session.avgConsultationDurationMinutes ||
+      state.config.slotDurationMinutes ||
+      15;
 
     // Active appointment with doctor
     const currentActiveAppt = dayAppointments.find((a) => a.status === 'WITH_DOCTOR');
@@ -251,7 +262,8 @@ export class SchedulingService {
 
     const startMinutes = timeToMinutes(schedule.startTime);
     const endMinutes = timeToMinutes(schedule.endTime);
-    const slotDuration = schedule.slotDurationMinutes || 15;
+    const doctorObj = state.doctors.find((d) => d.id === doctorId);
+    const slotDuration = schedule.slotDurationMinutes || doctorObj?.slotDurationMinutes || 15;
 
     // Existing active bookings for this date and doctor
     const existingBookings = state.appointments.filter(

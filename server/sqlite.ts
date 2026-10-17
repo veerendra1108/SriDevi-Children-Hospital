@@ -2,6 +2,8 @@ import Database from 'better-sqlite3';
 import path from 'path';
 import fs from 'fs';
 import {
+  Hospital,
+  HospitalAdminUser,
   Parent,
   Child,
   Doctor,
@@ -48,6 +50,38 @@ export class SqliteManager {
 
   private initSchema(): void {
     this.db.exec(`
+      CREATE TABLE IF NOT EXISTS hospitals (
+        id TEXT PRIMARY KEY,
+        slug TEXT NOT NULL UNIQUE,
+        name TEXT NOT NULL,
+        address TEXT NOT NULL,
+        city TEXT NOT NULL,
+        state TEXT NOT NULL,
+        pincode TEXT NOT NULL,
+        phone TEXT NOT NULL,
+        admin_name TEXT NOT NULL,
+        admin_email TEXT NOT NULL,
+        admin_mobile TEXT NOT NULL,
+        hospital_type TEXT NOT NULL,
+        logo_url TEXT,
+        status TEXT NOT NULL DEFAULT 'ACTIVE',
+        onboarding_step INTEGER NOT NULL DEFAULT 6,
+        created_at TEXT NOT NULL DEFAULT (datetime('now')),
+        updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+      );
+
+      CREATE TABLE IF NOT EXISTS hospital_admins (
+        id TEXT PRIMARY KEY,
+        hospital_id TEXT NOT NULL,
+        name TEXT NOT NULL,
+        email TEXT NOT NULL UNIQUE,
+        mobile TEXT NOT NULL,
+        password_hash TEXT NOT NULL,
+        role TEXT NOT NULL DEFAULT 'HOSPITAL_ADMIN',
+        created_at TEXT NOT NULL DEFAULT (datetime('now')),
+        FOREIGN KEY (hospital_id) REFERENCES hospitals(id) ON DELETE CASCADE
+      );
+
       CREATE TABLE IF NOT EXISTS parents (
         id TEXT PRIMARY KEY,
         name TEXT NOT NULL,
@@ -319,6 +353,22 @@ export class SqliteManager {
     ensureColumn('doctors', 'mobile', 'TEXT');
     ensureColumn('doctors', 'email', 'TEXT');
     ensureColumn('doctors', 'digital_signature_url', 'TEXT');
+    ensureColumn('doctors', 'hospital_id', "TEXT DEFAULT 'hosp_sdch'");
+    ensureColumn('doctors', 'slot_duration_minutes', 'INTEGER DEFAULT 15');
+    ensureColumn('doctors', 'available_days_json', "TEXT DEFAULT '[0,1,2,3,4,5,6]'");
+    ensureColumn('doctors', 'consultation_fee', 'INTEGER DEFAULT 500');
+    ensureColumn('doctor_accounts', 'hospital_id', "TEXT DEFAULT 'hosp_sdch'");
+    ensureColumn('branches', 'hospital_id', "TEXT DEFAULT 'hosp_sdch'");
+    ensureColumn('doctor_schedules', 'hospital_id', "TEXT DEFAULT 'hosp_sdch'");
+    ensureColumn('appointments', 'hospital_id', "TEXT DEFAULT 'hosp_sdch'");
+    ensureColumn('appointments', 'hospital_name', "TEXT DEFAULT 'Sri Devi Children Hospital'");
+    ensureColumn('appointments', 'tracking_secret', 'TEXT');
+    ensureColumn('appointments', 'patient_age', 'INTEGER');
+    ensureColumn('appointments', 'guardian_name', 'TEXT');
+    ensureColumn('doctor_sessions', 'hospital_id', "TEXT DEFAULT 'hosp_sdch'");
+    ensureColumn('reception_users', 'hospital_id', "TEXT DEFAULT 'hosp_sdch'");
+    ensureColumn('reception_users', 'assigned_doctors_json', "TEXT DEFAULT '[]'");
+    ensureColumn('system_config', 'hospital_id', "TEXT DEFAULT 'hosp_sdch'");
   }
 
   public isDatabaseEmpty(): boolean {
@@ -352,7 +402,57 @@ export class SqliteManager {
         DELETE FROM gallery;
         DELETE FROM reviews;
         DELETE FROM system_config;
+        DELETE FROM hospital_admins;
+        DELETE FROM hospitals;
       `);
+
+      // Hospitals & Hospital Admins
+      if (seed.hospitals && seed.hospitals.length > 0) {
+        const insertHosp = this.db.prepare(`
+          INSERT INTO hospitals (id, slug, name, address, city, state, pincode, phone, admin_name, admin_email, admin_mobile, hospital_type, logo_url, status, onboarding_step, created_at, updated_at)
+          VALUES (@id, @slug, @name, @address, @city, @state, @pincode, @phone, @adminName, @adminEmail, @adminMobile, @hospitalType, @logoUrl, @status, @onboardingStep, @createdAt, @updatedAt)
+        `);
+        for (const h of seed.hospitals) {
+          insertHosp.run({
+            id: h.id,
+            slug: h.slug,
+            name: h.name,
+            address: h.address,
+            city: h.city,
+            state: h.state,
+            pincode: h.pincode,
+            phone: h.phone,
+            adminName: h.adminName,
+            adminEmail: h.adminEmail,
+            adminMobile: h.adminMobile,
+            hospitalType: h.hospitalType,
+            logoUrl: h.logoUrl || null,
+            status: h.status || 'ACTIVE',
+            onboardingStep: h.onboardingStep || 6,
+            createdAt: h.createdAt || new Date().toISOString(),
+            updatedAt: h.updatedAt || new Date().toISOString(),
+          });
+        }
+      }
+
+      if (seed.hospitalAdmins && seed.hospitalAdmins.length > 0) {
+        const insertAdmin = this.db.prepare(`
+          INSERT INTO hospital_admins (id, hospital_id, name, email, mobile, password_hash, role, created_at)
+          VALUES (@id, @hospitalId, @name, @email, @mobile, @passwordHash, @role, @createdAt)
+        `);
+        for (const ha of seed.hospitalAdmins) {
+          insertAdmin.run({
+            id: ha.id,
+            hospitalId: ha.hospitalId,
+            name: ha.name,
+            email: ha.email,
+            mobile: ha.mobile,
+            passwordHash: (seed.hospitalAdminPasswords && seed.hospitalAdminPasswords[ha.email]) || 'Admin@123',
+            role: ha.role || 'HOSPITAL_ADMIN',
+            createdAt: ha.createdAt || new Date().toISOString(),
+          });
+        }
+      }
 
       // Parents & Children
       const insertParent = this.db.prepare(`
@@ -774,6 +874,54 @@ export class SqliteManager {
   }
 
   public loadState(): DatabaseState {
+    // Hospitals
+    let hospitals: Hospital[] = [];
+    try {
+      const hospRows = this.db.prepare('SELECT * FROM hospitals').all() as any[];
+      hospitals = hospRows.map((h) => ({
+        id: h.id,
+        slug: h.slug,
+        name: h.name,
+        address: h.address,
+        city: h.city,
+        state: h.state,
+        pincode: h.pincode,
+        phone: h.phone,
+        adminName: h.admin_name,
+        adminEmail: h.admin_email,
+        adminMobile: h.admin_mobile,
+        hospitalType: h.hospital_type,
+        logoUrl: h.logo_url || undefined,
+        status: h.status || 'ACTIVE',
+        onboardingStep: h.onboarding_step ?? 6,
+        createdAt: h.created_at,
+        updatedAt: h.updated_at,
+      }));
+    } catch {
+      hospitals = [];
+    }
+
+    // Hospital Admins
+    let hospitalAdmins: HospitalAdminUser[] = [];
+    const hospitalAdminPasswords: Record<string, string> = {};
+    try {
+      const adminRows = this.db.prepare('SELECT * FROM hospital_admins').all() as any[];
+      hospitalAdmins = adminRows.map((a) => {
+        hospitalAdminPasswords[a.email] = a.password_hash;
+        return {
+          id: a.id,
+          hospitalId: a.hospital_id,
+          name: a.name,
+          email: a.email,
+          mobile: a.mobile,
+          role: a.role,
+          createdAt: a.created_at,
+        };
+      });
+    } catch {
+      hospitalAdmins = [];
+    }
+
     // Parents & Children
     const parentRows = this.db.prepare('SELECT * FROM parents').all() as any[];
     const childRows = this.db.prepare('SELECT * FROM children').all() as any[];
@@ -823,6 +971,8 @@ export class SqliteManager {
       password: r.password,
       branchId: r.branch_id,
       name: r.name,
+      hospitalId: r.hospital_id || 'hosp_sdch',
+      assignedDoctorIds: r.assigned_doctors_json ? JSON.parse(r.assigned_doctors_json) : [],
     }));
 
     // Doctors
@@ -842,6 +992,10 @@ export class SqliteManager {
       mobile: d.mobile || undefined,
       email: d.email || undefined,
       digitalSignatureUrl: d.digital_signature_url || undefined,
+      hospitalId: d.hospital_id || 'hosp_sdch',
+      slotDurationMinutes: d.slot_duration_minutes || 15,
+      availableDays: d.available_days_json ? JSON.parse(d.available_days_json) : [0, 1, 2, 3, 4, 5, 6],
+      consultationFee: d.consultation_fee || 500,
     }));
 
     // Doctor Accounts
@@ -860,6 +1014,7 @@ export class SqliteManager {
         isApproved: da.is_approved === 1,
         isActive: da.is_active === 1,
         status: da.is_approved === 1 ? 'APPROVED' : 'PENDING',
+        hospitalId: da.hospital_id || 'hosp_sdch',
       };
     });
 
@@ -875,6 +1030,7 @@ export class SqliteManager {
       timings: b.timings,
       mapEmbedUrl: b.map_embed_url || undefined,
       googleMapsUrl: b.google_maps_url,
+      hospitalId: b.hospital_id || 'hosp_sdch',
     }));
 
     // Doctor Schedules
@@ -890,6 +1046,7 @@ export class SqliteManager {
       bufferMinutesPerHour: s.buffer_minutes_per_hour,
       isAvailable: s.is_available === 1,
       notes: s.notes || undefined,
+      hospitalId: s.hospital_id || 'hosp_sdch',
     }));
 
     // Appointments
@@ -928,6 +1085,11 @@ export class SqliteManager {
       history: JSON.parse(a.history_json || '[]'),
       createdAt: a.created_at,
       updatedAt: a.updated_at,
+      hospitalId: a.hospital_id || 'hosp_sdch',
+      hospitalName: a.hospital_name || 'Sri Devi Children Hospital',
+      trackingSecret: a.tracking_secret || undefined,
+      patientAge: a.patient_age ?? undefined,
+      guardianName: a.guardian_name || undefined,
     }));
 
     // Sessions
@@ -945,6 +1107,7 @@ export class SqliteManager {
       bufferAvailableMinutes: s.buffer_available_minutes,
       emergencyAdjustmentCount: s.emergency_adjustment_count,
       cancellationNotice: s.cancellation_notice || undefined,
+      hospitalId: s.hospital_id || 'hosp_sdch',
     }));
 
     // Config
@@ -1098,6 +1261,10 @@ export class SqliteManager {
     }
 
     return {
+      hospitals,
+      hospitalAdmins,
+      hospitalAdminPasswords,
+      hospitalAdminSessionsAuth: [],
       parents,
       parentPasswords,
       parentSessionsAuth: [],

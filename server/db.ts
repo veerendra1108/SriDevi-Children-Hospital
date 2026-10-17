@@ -1,4 +1,6 @@
 import {
+  Hospital,
+  HospitalAdminUser,
   Parent,
   Child,
   Doctor,
@@ -35,14 +37,20 @@ import {
 } from './demoSeedData.js';
 
 export interface DatabaseState {
+  hospitals: Hospital[];
+  hospitalAdmins: HospitalAdminUser[];
+  hospitalAdminPasswords: Record<string, string>;
+  hospitalAdminSessionsAuth: { token: string; hospitalId: string; adminId: string; expiresAt: string }[];
   parents: Parent[];
   parentPasswords: Record<string, string>; // mobile -> password
   parentSessionsAuth: { token: string; parentId: string; expiresAt: string }[];
   receptionUsers: {
     username: string;
     password: string;
-    branchId: 'kakinada' | 'pithapuram';
+    branchId: string;
     name: string;
+    hospitalId?: string;
+    assignedDoctorIds?: string[];
   }[];
   doctors: Doctor[];
   doctorAccounts: DoctorAccount[];
@@ -179,24 +187,101 @@ export function getInitialSeedData(): DatabaseState {
     '9000000010': 'Test@123',
   };
 
+  const hospitals: Hospital[] = [
+    {
+      id: 'hosp_sdch',
+      slug: 'sri-devi',
+      name: 'Sri Devi Children Hospital',
+      address: 'Near Rama Rao Peta, Main Road',
+      city: 'Kakinada',
+      state: 'Andhra Pradesh',
+      pincode: '533004',
+      phone: '+91 884 237 8899',
+      adminName: 'Dr. Subba Rao Vadarevu',
+      adminEmail: 'admin@sridevichildren.com',
+      adminMobile: '9440112233',
+      hospitalType: 'Children / Pediatric Super-Speciality',
+      logoUrl: '/logos/sri-devi.png',
+      status: 'ACTIVE',
+      onboardingStep: 6,
+      createdAt: '2026-01-01T00:00:00Z',
+      updatedAt: '2026-01-01T00:00:00Z',
+    },
+    {
+      id: 'hosp_citycare',
+      slug: 'city-care',
+      name: 'City Care Multi-Speciality Hospital',
+      address: 'Road No. 12, Banjara Hills',
+      city: 'Hyderabad',
+      state: 'Telangana',
+      pincode: '500034',
+      phone: '+91 40 2345 6789',
+      adminName: 'Dr. Rajesh Varma',
+      adminEmail: 'admin@citycarehospital.com',
+      adminMobile: '9848012345',
+      hospitalType: 'Multispeciality Hospital & Research Center',
+      logoUrl: '/logos/city-care.png',
+      status: 'ACTIVE',
+      onboardingStep: 6,
+      createdAt: '2026-01-15T00:00:00Z',
+      updatedAt: '2026-01-15T00:00:00Z',
+    },
+  ];
+
+  const hospitalAdmins: HospitalAdminUser[] = [
+    {
+      id: 'admin_sdch',
+      hospitalId: 'hosp_sdch',
+      name: 'Dr. Subba Rao Vadarevu',
+      email: 'admin@sridevichildren.com',
+      mobile: '9440112233',
+      role: 'HOSPITAL_ADMIN',
+      createdAt: '2026-01-01T00:00:00Z',
+    },
+    {
+      id: 'admin_citycare',
+      hospitalId: 'hosp_citycare',
+      name: 'Dr. Rajesh Varma',
+      email: 'admin@citycarehospital.com',
+      mobile: '9848012345',
+      role: 'HOSPITAL_ADMIN',
+      createdAt: '2026-01-15T00:00:00Z',
+    },
+  ];
+
+  const hospitalAdminPasswords: Record<string, string> = {
+    'admin@sridevichildren.com': 'Admin@123',
+    'admin@citycarehospital.com': 'Admin@123',
+  };
+
   const receptionUsers = [
     {
       username: 'reception.kakinada',
       password: 'Reception@123',
-      branchId: 'kakinada' as const,
+      branchId: 'kakinada',
       name: 'Kakinada Frontdesk',
+      hospitalId: 'hosp_sdch',
     },
     {
       username: 'reception.pithapuram',
       password: 'Reception@123',
-      branchId: 'pithapuram' as const,
+      branchId: 'pithapuram',
       name: 'Pithapuram Frontdesk',
+      hospitalId: 'hosp_sdch',
+    },
+    {
+      username: 'reception.citycare',
+      password: 'Reception@123',
+      branchId: 'citycare-banjara',
+      name: 'City Care Frontdesk',
+      hospitalId: 'hosp_citycare',
     },
   ];
 
   const doctors: Doctor[] = [
     {
       id: 'dr-subba-rao',
+      hospitalId: 'hosp_sdch',
       name: 'Dr. Subba Rao Vadarevu',
       photoUrl: 'https://images.unsplash.com/photo-1622253692010-333f2da6031d?auto=format&fit=crop&w=600&q=80',
       qualifications: 'MBBS, MD (Pediatrics), DCH',
@@ -210,9 +295,13 @@ export function getInitialSeedData(): DatabaseState {
       mobile: '9440112233',
       email: 'subbarao@drsridevichildren.com',
       digitalSignatureUrl: '/signatures/dr-subba-rao.png',
+      slotDurationMinutes: 15, // 15 min slots
+      availableDays: [0, 1, 2, 3, 4, 5, 6],
+      consultationFee: 500,
     },
     {
       id: 'dr-prashant',
+      hospitalId: 'hosp_sdch',
       name: 'Dr. Prashant',
       photoUrl: 'https://images.unsplash.com/photo-1537368910025-700350fe46c7?auto=format&fit=crop&w=600&q=80',
       qualifications: 'MBBS, MD (Pediatrics), DCH, FIAP',
@@ -226,12 +315,54 @@ export function getInitialSeedData(): DatabaseState {
       mobile: '9440112244',
       email: 'prashant@drsridevichildren.com',
       digitalSignatureUrl: '/signatures/dr-prashant.png',
+      slotDurationMinutes: 15, // 15 min slots
+      availableDays: [0, 1, 2, 3, 4, 5, 6],
+      consultationFee: 500,
+    },
+    {
+      id: 'dr-ramesh-kumar',
+      hospitalId: 'hosp_citycare',
+      name: 'Dr. Ramesh Kumar',
+      photoUrl: 'https://images.unsplash.com/photo-1537368910025-700350fe46c7?auto=format&fit=crop&w=600&q=80',
+      qualifications: 'MBBS, MD (General Medicine)',
+      specialty: 'Senior Consultant Physician',
+      experienceYears: 18,
+      summary: 'Experienced physician specializing in general consultations, diabetic care, and acute adult & family healthcare.',
+      branches: ['citycare-banjara'],
+      active: true,
+      scheduleDescription: 'Mon to Sat 09:00 AM to 05:00 PM at Banjara Hills.',
+      medicalRegistrationNo: 'TSMC-58210',
+      mobile: '9848099881',
+      email: 'ramesh.kumar@citycarehospital.com',
+      slotDurationMinutes: 10, // 10 min slots per user requirement!
+      availableDays: [1, 2, 3, 4, 5, 6],
+      consultationFee: 600,
+    },
+    {
+      id: 'dr-ananya-sharma',
+      hospitalId: 'hosp_citycare',
+      name: 'Dr. Ananya Sharma',
+      photoUrl: 'https://images.unsplash.com/photo-1594824813637-438eb4d58852?auto=format&fit=crop&w=600&q=80',
+      qualifications: 'MBBS, MS (ENT), DNB',
+      specialty: 'ENT Specialist & Rapid Triage',
+      experienceYears: 12,
+      summary: 'Specialist in rapid ENT evaluations, endoscopic screenings, and pediatric ENT consultations.',
+      branches: ['citycare-banjara'],
+      active: true,
+      scheduleDescription: 'Mon to Fri 10:00 AM to 04:00 PM at Banjara Hills.',
+      medicalRegistrationNo: 'TSMC-69142',
+      mobile: '9848099882',
+      email: 'ananya.sharma@citycarehospital.com',
+      slotDurationMinutes: 5, // 5 min slots per user requirement!
+      availableDays: [1, 2, 3, 4, 5],
+      consultationFee: 500,
     },
   ];
 
   const doctorAccounts: DoctorAccount[] = [
     {
       id: 'dr-subba-rao',
+      hospitalId: 'hosp_sdch',
       doctorId: 'dr-subba-rao',
       name: 'Dr. Subba Rao Vadarevu',
       email: 'subbarao@drsridevichildren.com',
@@ -243,6 +374,7 @@ export function getInitialSeedData(): DatabaseState {
     },
     {
       id: 'dr-prashant',
+      hospitalId: 'hosp_sdch',
       doctorId: 'dr-prashant',
       name: 'Dr. Prashant',
       email: 'prashant@drsridevichildren.com',
@@ -252,16 +384,41 @@ export function getInitialSeedData(): DatabaseState {
       isApproved: true,
       isActive: true,
     },
+    {
+      id: 'dr-ramesh-kumar',
+      hospitalId: 'hosp_citycare',
+      doctorId: 'dr-ramesh-kumar',
+      name: 'Dr. Ramesh Kumar',
+      email: 'ramesh.kumar@citycarehospital.com',
+      mobile: '9848099881',
+      medicalRegistrationNo: 'TSMC-58210',
+      isApproved: true,
+      isActive: true,
+    },
+    {
+      id: 'dr-ananya-sharma',
+      hospitalId: 'hosp_citycare',
+      doctorId: 'dr-ananya-sharma',
+      name: 'Dr. Ananya Sharma',
+      email: 'ananya.sharma@citycarehospital.com',
+      mobile: '9848099882',
+      medicalRegistrationNo: 'TSMC-69142',
+      isApproved: true,
+      isActive: true,
+    },
   ];
 
   const doctorPasswords: Record<string, string> = {
     'dr-subba-rao': 'Doctor@123',
     'dr-prashant': 'Doctor@123',
+    'dr-ramesh-kumar': 'Doctor@123',
+    'dr-ananya-sharma': 'Doctor@123',
   };
 
   const branches: HospitalBranch[] = [
     {
       id: 'kakinada',
+      hospitalId: 'hosp_sdch',
       name: 'Sri Devi Children Hospital - Kakinada',
       address: 'Near Rama Rao Peta, Main Road, Kakinada, Andhra Pradesh 533004',
       landmark: 'Near Government General Hospital / Medical College Junction',
@@ -272,6 +429,7 @@ export function getInitialSeedData(): DatabaseState {
     },
     {
       id: 'pithapuram',
+      hospitalId: 'hosp_sdch',
       name: 'Sri Devi Children Hospital - Pithapuram',
       address: 'Station Road, Opp. Municipal Complex, Pithapuram, Andhra Pradesh 533450',
       landmark: 'Near RTC Bus Complex & Temple Arch Road',
@@ -280,11 +438,23 @@ export function getInitialSeedData(): DatabaseState {
       timings: 'Daily: 10:00 AM - 07:00 PM (Emergency open)',
       googleMapsUrl: 'https://maps.google.com/?q=Sri+Devi+Children+Hospital+Pithapuram',
     },
+    {
+      id: 'citycare-banjara',
+      hospitalId: 'hosp_citycare',
+      name: 'City Care Hospital - Banjara Hills',
+      address: 'Road No. 12, Opp. City Center, Banjara Hills, Hyderabad 500034',
+      landmark: 'Near Care Hospital Lane',
+      phone: '+91 40 2345 6789',
+      emergencyPhone: '+91 98480 12345',
+      timings: 'Mon-Sat: 09:00 AM - 08:00 PM (Emergency 24/7)',
+      googleMapsUrl: 'https://maps.google.com/?q=Banjara+Hills+Hyderabad',
+    },
   ];
 
   const schedules: DoctorSchedule[] = [
     {
       id: 'sch-1',
+      hospitalId: 'hosp_sdch',
       doctorId: 'dr-subba-rao',
       branchId: 'kakinada',
       daysOfWeek: [0, 1, 2, 3, 4, 5, 6], // Daily (Sun-Sat)
@@ -297,6 +467,7 @@ export function getInitialSeedData(): DatabaseState {
     },
     {
       id: 'sch-2',
+      hospitalId: 'hosp_sdch',
       doctorId: 'dr-subba-rao',
       branchId: 'pithapuram',
       daysOfWeek: [0, 1, 2, 3, 4, 5, 6], // Daily (Sun-Sat)
@@ -309,6 +480,7 @@ export function getInitialSeedData(): DatabaseState {
     },
     {
       id: 'sch-3',
+      hospitalId: 'hosp_sdch',
       doctorId: 'dr-prashant',
       branchId: 'kakinada',
       daysOfWeek: [0, 1, 2, 3, 4, 5, 6], // Daily (Sun-Sat)
@@ -321,6 +493,7 @@ export function getInitialSeedData(): DatabaseState {
     },
     {
       id: 'sch-4',
+      hospitalId: 'hosp_sdch',
       doctorId: 'dr-prashant',
       branchId: 'pithapuram',
       daysOfWeek: [0, 1, 2, 3, 4, 5, 6], // Daily (Sun-Sat)
@@ -330,6 +503,32 @@ export function getInitialSeedData(): DatabaseState {
       bufferMinutesPerHour: 10,
       isAvailable: true,
       notes: 'Daily consultation session in Pithapuram',
+    },
+    {
+      id: 'sch-citycare-1',
+      hospitalId: 'hosp_citycare',
+      doctorId: 'dr-ramesh-kumar',
+      branchId: 'citycare-banjara',
+      daysOfWeek: [1, 2, 3, 4, 5, 6], // Mon-Sat
+      startTime: '09:00',
+      endTime: '17:00',
+      slotDurationMinutes: 10, // 10 min slots
+      bufferMinutesPerHour: 10,
+      isAvailable: true,
+      notes: 'General Physician OPD Session',
+    },
+    {
+      id: 'sch-citycare-2',
+      hospitalId: 'hosp_citycare',
+      doctorId: 'dr-ananya-sharma',
+      branchId: 'citycare-banjara',
+      daysOfWeek: [1, 2, 3, 4, 5], // Mon-Fri
+      startTime: '10:00',
+      endTime: '16:00',
+      slotDurationMinutes: 5, // 5 min slots
+      bufferMinutesPerHour: 10,
+      isAvailable: true,
+      notes: 'ENT Rapid OPD Session',
     },
   ];
 
@@ -1154,6 +1353,10 @@ export function getInitialSeedData(): DatabaseState {
   ];
 
   return {
+    hospitals,
+    hospitalAdmins,
+    hospitalAdminPasswords,
+    hospitalAdminSessionsAuth: [],
     parents,
     parentPasswords,
     receptionUsers,

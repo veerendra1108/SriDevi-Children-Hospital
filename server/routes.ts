@@ -2,6 +2,13 @@ import { Router } from 'express';
 import { db } from './db.js';
 import { schedulingService, timeToMinutes, minutesToTime } from './schedulingService.js';
 import {
+  Hospital,
+  HospitalAdminUser,
+  Doctor,
+  DoctorSchedule,
+  HospitalBranch,
+  Appointment,
+  DoctorSession,
   BranchId,
   OperationalAnalytics,
   ChildAllergy,
@@ -27,6 +34,891 @@ import { PEDIATRIC_DIAGNOSES, PediatricDiagnosis } from '../src/data/pediatricDi
 import { ensureComprehensiveDemoData } from './demoSeedData.js';
 
 export const apiRouter = Router();
+
+// --- HELPER FUNCTIONS ---
+function slugify(text: string): string {
+  return text
+    .toLowerCase()
+    .trim()
+    .replace(/[^\w\s-]/g, '')
+    .replace(/[\s_-]+/g, '-')
+    .replace(/^-+|-+$/g, '');
+}
+
+// --- DOCTORMATE SAAS MULTI-HOSPITAL ENDPOINTS ---
+
+// List all registered hospitals (for public directory & "Find Hospital")
+apiRouter.get('/hospitals', (req, res) => {
+  const state = db.getState();
+  const list = (state.hospitals || []).map((h) => ({
+    id: h.id,
+    slug: h.slug,
+    name: h.name,
+    city: h.city,
+    state: h.state,
+    pincode: h.pincode,
+    phone: h.phone,
+    hospitalType: h.hospitalType,
+    logoUrl: h.logoUrl,
+    status: h.status,
+    doctorCount: (state.doctors || []).filter((d) => (d.hospitalId || 'hosp_sdch') === h.id && d.active).length,
+  }));
+  res.json(list);
+});
+
+// Get hospital details by slug or ID (for public booking page / direct link)
+apiRouter.get('/hospitals/:slug', (req, res) => {
+  const { slug } = req.params;
+  const state = db.getState();
+  const hospital = (state.hospitals || []).find(
+    (h) => h.slug.toLowerCase() === slug.toLowerCase() || h.id === slug
+  );
+
+  if (!hospital) {
+    return res.status(404).json({ error: 'Hospital not found.' });
+  }
+
+  const doctors = (state.doctors || []).filter(
+    (d) => (d.hospitalId || 'hosp_sdch') === hospital.id && d.active
+  );
+  const branches = (state.branches || []).filter(
+    (b) => (b.hospitalId || 'hosp_sdch') === hospital.id
+  );
+  const schedules = (state.schedules || []).filter(
+    (s) => (s.hospitalId || 'hosp_sdch') === hospital.id && s.isAvailable
+  );
+
+  res.json({
+    hospital,
+    doctors,
+    branches,
+    schedules,
+    config: state.config,
+  });
+});
+
+// Hospital Self-Registration
+apiRouter.post('/hospitals/register', (req, res) => {
+  const {
+    name,
+    address,
+    city,
+    state: hospState,
+    pincode,
+    phone,
+    adminName,
+    adminEmail,
+    adminMobile,
+    password,
+    hospitalType,
+    logoUrl,
+  } = req.body;
+
+  if (!name || !adminEmail || !password || !adminName) {
+    return res.status(400).json({ error: 'Hospital name, administrator name, email, and password are required.' });
+  }
+
+  const state = db.getState();
+  if (!state.hospitals) state.hospitals = [];
+  if (!state.hospitalAdmins) state.hospitalAdmins = [];
+  if (!state.hospitalAdminPasswords) state.hospitalAdminPasswords = {};
+  if (!state.hospitalAdminSessionsAuth) state.hospitalAdminSessionsAuth = [];
+
+  // Check email uniqueness among admins
+  const emailLower = String(adminEmail).trim().toLowerCase();
+  const existingAdmin = state.hospitalAdmins.find((a) => a.email.toLowerCase() === emailLower);
+  if (existingAdmin) {
+    return res.status(400).json({ error: 'An administrator with this email already exists.' });
+  }
+
+  // Generate unique slug
+  let baseSlug = slugify(name);
+  if (!baseSlug) baseSlug = 'hospital';
+  let slug = baseSlug;
+  let counter = 1;
+  while (state.hospitals.some((h) => h.slug === slug)) {
+    slug = `${baseSlug}-${counter}`;
+    counter++;
+  }
+
+  const hospitalId = `hosp_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
+  const adminId = `admin_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
+  const now = new Date().toISOString();
+
+  const newHospital: Hospital = {
+    id: hospitalId,
+    slug,
+    name: String(name).trim(),
+    address: String(address || '').trim(),
+    city: String(city || '').trim(),
+    state: String(hospState || '').trim(),
+    pincode: String(pincode || '').trim(),
+    phone: String(phone || adminMobile || '').trim(),
+    adminName: String(adminName).trim(),
+    adminEmail: emailLower,
+    adminMobile: String(adminMobile || '').trim(),
+    hospitalType: String(hospitalType || 'General Hospital').trim(),
+    logoUrl: logoUrl || undefined,
+    status: 'PENDING_ONBOARDING',
+    onboardingStep: 1,
+    createdAt: now,
+    updatedAt: now,
+  };
+
+  const newAdmin: HospitalAdminUser = {
+    id: adminId,
+    hospitalId,
+    name: String(adminName).trim(),
+    email: emailLower,
+    mobile: String(adminMobile || '').trim(),
+    role: 'HOSPITAL_ADMIN',
+    createdAt: now,
+  };
+
+  // Create default branch
+  const branchId = `br_${Date.now()}`;
+  const defaultBranch: HospitalBranch = {
+    id: branchId,
+    hospitalId,
+    name: `${newHospital.name} - Main Branch`,
+    address: newHospital.address || 'Main Clinic Road',
+    landmark: 'City Center',
+    phone: newHospital.phone || '+91 99999 00000',
+    emergencyPhone: newHospital.phone || '+91 99999 00000',
+    timings: 'Mon-Sat: 09:00 AM - 06:00 PM',
+    googleMapsUrl: 'https://maps.google.com',
+  };
+
+  state.hospitals.push(newHospital);
+  state.hospitalAdmins.push(newAdmin);
+  state.hospitalAdminPasswords[emailLower] = password;
+  state.branches.push(defaultBranch);
+
+  // Generate session token
+  const token = `hosp_admin_tok_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`;
+  const expiresAt = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString();
+  state.hospitalAdminSessionsAuth.push({ token, hospitalId, adminId, expiresAt });
+
+  db.persistState();
+
+  return res.json({
+    success: true,
+    hospital: newHospital,
+    admin: newAdmin,
+    token,
+    bookingUrl: `/hospital/${newHospital.slug}`,
+  });
+});
+
+// Hospital Onboarding Wizard Step Handler
+apiRouter.post('/hospitals/:id/onboarding', (req, res) => {
+  const { id } = req.params;
+  const { step, hospitalData, doctors, opdPolicies, receptionists, activate } = req.body;
+  const state = db.getState();
+
+  const hospital = (state.hospitals || []).find((h) => h.id === id);
+  if (!hospital) {
+    return res.status(404).json({ error: 'Hospital not found.' });
+  }
+
+  // Step 1: Hospital details
+  if (hospitalData) {
+    if (hospitalData.name) hospital.name = hospitalData.name;
+    if (hospitalData.address) hospital.address = hospitalData.address;
+    if (hospitalData.city) hospital.city = hospitalData.city;
+    if (hospitalData.state) hospital.state = hospitalData.state;
+    if (hospitalData.pincode) hospital.pincode = hospitalData.pincode;
+    if (hospitalData.phone) hospital.phone = hospitalData.phone;
+    if (hospitalData.hospitalType) hospital.hospitalType = hospitalData.hospitalType;
+    if (hospitalData.logoUrl) hospital.logoUrl = hospitalData.logoUrl;
+  }
+
+  // Step 2: Add or update doctors (with custom slotDurationMinutes per user requirement: 5, 10, 15, 20 min etc.)
+  if (Array.isArray(doctors) && doctors.length > 0) {
+    doctors.forEach((docInput) => {
+      if (!docInput.name) return;
+      const docId = docInput.id || `doc_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`;
+      const customSlotDuration = Number(docInput.slotDurationMinutes) || 15;
+      const availableDays = Array.isArray(docInput.availableDays) ? docInput.availableDays : [1, 2, 3, 4, 5, 6];
+
+      // Find or create doctor
+      let existingDoc = state.doctors.find((d) => d.id === docId && d.hospitalId === id);
+      if (!existingDoc) {
+        existingDoc = {
+          id: docId,
+          hospitalId: id,
+          name: docInput.name,
+          photoUrl: docInput.photoUrl || 'https://images.unsplash.com/photo-1622253692010-333f2da6031d?auto=format&fit=crop&w=600&q=80',
+          qualifications: docInput.qualifications || 'MBBS',
+          specialty: docInput.specialty || 'General Consultation',
+          experienceYears: Number(docInput.experienceYears) || 5,
+          summary: docInput.summary || `Consultant at ${hospital.name}`,
+          branches: [docInput.branchId || state.branches.find((b) => b.hospitalId === id)?.id || 'main'],
+          active: true,
+          slotDurationMinutes: customSlotDuration,
+          availableDays,
+          consultationFee: Number(docInput.consultationFee) || 500,
+          mobile: docInput.mobile,
+          email: docInput.email,
+        };
+        state.doctors.push(existingDoc);
+      } else {
+        existingDoc.name = docInput.name;
+        existingDoc.specialty = docInput.specialty || existingDoc.specialty;
+        existingDoc.slotDurationMinutes = customSlotDuration;
+        existingDoc.availableDays = availableDays;
+        if (docInput.consultationFee) existingDoc.consultationFee = Number(docInput.consultationFee);
+      }
+
+      // Ensure schedule exists for this doctor
+      const branchId = existingDoc.branches[0] || 'main';
+      let schedule = state.schedules.find((s) => s.doctorId === docId && s.hospitalId === id);
+      if (!schedule) {
+        schedule = {
+          id: `sch_${docId}`,
+          hospitalId: id,
+          doctorId: docId,
+          branchId,
+          daysOfWeek: availableDays,
+          startTime: docInput.startTime || '09:00',
+          endTime: docInput.endTime || '17:00',
+          slotDurationMinutes: customSlotDuration,
+          bufferMinutesPerHour: Number(opdPolicies?.bufferMinutesPerHour) || 10,
+          isAvailable: true,
+          notes: 'Standard OPD session',
+        };
+        state.schedules.push(schedule);
+      } else {
+        schedule.slotDurationMinutes = customSlotDuration;
+        schedule.daysOfWeek = availableDays;
+        if (docInput.startTime) schedule.startTime = docInput.startTime;
+        if (docInput.endTime) schedule.endTime = docInput.endTime;
+      }
+    });
+  }
+
+  // Step 4: Create receptionist accounts
+  if (Array.isArray(receptionists) && receptionists.length > 0) {
+    receptionists.forEach((recInput) => {
+      if (!recInput.username || !recInput.password) return;
+      const trimmedUser = String(recInput.username).trim().toLowerCase();
+      const existing = state.receptionUsers.find((r) => r.username.toLowerCase() === trimmedUser);
+      if (!existing) {
+        state.receptionUsers.push({
+          username: trimmedUser,
+          password: recInput.password,
+          branchId: recInput.branchId || state.branches.find((b) => b.hospitalId === id)?.id || 'main',
+          name: recInput.name || `${hospital.name} Reception Desk`,
+          hospitalId: id,
+          assignedDoctorIds: recInput.assignedDoctorIds || [],
+        });
+      }
+    });
+  }
+
+  // Step tracking & Activation
+  if (step && Number(step) > hospital.onboardingStep) {
+    hospital.onboardingStep = Number(step);
+  }
+  if (activate) {
+    hospital.status = 'ACTIVE';
+    hospital.onboardingStep = 6;
+  }
+  hospital.updatedAt = new Date().toISOString();
+
+  db.persistState();
+
+  res.json({
+    success: true,
+    hospital,
+    bookingUrl: `/hospital/${hospital.slug}`,
+  });
+});
+
+// Hospital Admin Login
+apiRouter.post('/auth/hospital-admin-login', (req, res) => {
+  const { email, password } = req.body;
+  const state = db.getState();
+  const trimmedEmail = String(email || '').trim().toLowerCase();
+
+  const admin = (state.hospitalAdmins || []).find((a) => a.email.toLowerCase() === trimmedEmail);
+  if (!admin) {
+    return res.status(401).json({ error: 'Invalid admin credentials or account not found.' });
+  }
+
+  const expectedPass = (state.hospitalAdminPasswords && state.hospitalAdminPasswords[trimmedEmail]) || 'Admin@123';
+  if (password !== expectedPass) {
+    return res.status(401).json({ error: 'Incorrect administrator password.' });
+  }
+
+  const hospital = (state.hospitals || []).find((h) => h.id === admin.hospitalId);
+
+  const token = `hosp_admin_tok_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`;
+  const expiresAt = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString();
+  if (!state.hospitalAdminSessionsAuth) state.hospitalAdminSessionsAuth = [];
+  state.hospitalAdminSessionsAuth.push({ token, hospitalId: admin.hospitalId, adminId: admin.id, expiresAt });
+  db.persistState();
+
+  res.json({
+    success: true,
+    token,
+    admin,
+    hospital,
+  });
+});
+
+// Hospital Admin Dashboard Overview
+apiRouter.get('/hospital-admin/:hospitalId/dashboard', (req, res) => {
+  const { hospitalId } = req.params;
+  const state = db.getState();
+
+  const hospital = (state.hospitals || []).find((h) => h.id === hospitalId);
+  if (!hospital) {
+    return res.status(404).json({ error: 'Hospital not found.' });
+  }
+
+  const doctors = (state.doctors || []).filter((d) => (d.hospitalId || 'hosp_sdch') === hospitalId);
+  const branches = (state.branches || []).filter((b) => (b.hospitalId || 'hosp_sdch') === hospitalId);
+  const schedules = (state.schedules || []).filter((s) => (s.hospitalId || 'hosp_sdch') === hospitalId);
+  const receptionists = (state.receptionUsers || []).filter((r) => (r.hospitalId || 'hosp_sdch') === hospitalId);
+
+  const today = state.config.simulatedDate;
+  const todayAppts = (state.appointments || []).filter(
+    (a) => (a.hospitalId || 'hosp_sdch') === hospitalId && a.date === today
+  );
+
+  res.json({
+    hospital,
+    bookingUrl: `/hospital/${hospital.slug}`,
+    doctors,
+    branches,
+    schedules,
+    receptionists,
+    stats: {
+      totalDoctors: doctors.length,
+      totalAppointmentsToday: todayAppts.length,
+      onlineBookingsToday: todayAppts.filter((a) => a.bookingSource === 'ONLINE').length,
+      phoneBookingsToday: todayAppts.filter((a) => a.bookingSource === 'PHONE' || a.bookingSource === 'RECEPTION_PHONE').length,
+      completedToday: todayAppts.filter((a) => a.status === 'COMPLETED').length,
+      waitingToday: todayAppts.filter((a) => a.status === 'WAITING' || a.status === 'ARRIVED').length,
+    },
+    todayAppointments: todayAppts,
+  });
+});
+
+// Add Doctor to Hospital
+apiRouter.post('/hospital-admin/:hospitalId/doctors', (req, res) => {
+  const { hospitalId } = req.params;
+  const {
+    name,
+    specialty,
+    qualifications,
+    experienceYears,
+    summary,
+    slotDurationMinutes,
+    availableDays,
+    consultationFee,
+    startTime,
+    endTime,
+    mobile,
+    email,
+  } = req.body;
+
+  if (!name) return res.status(400).json({ error: 'Doctor name is required.' });
+
+  const state = db.getState();
+  const hospital = (state.hospitals || []).find((h) => h.id === hospitalId);
+  if (!hospital) return res.status(404).json({ error: 'Hospital not found.' });
+
+  const docId = `doc_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`;
+  const customSlotDuration = Number(slotDurationMinutes) || 15;
+  const days = Array.isArray(availableDays) ? availableDays : [1, 2, 3, 4, 5, 6];
+  const branchId = state.branches.find((b) => (b.hospitalId || 'hosp_sdch') === hospitalId)?.id || 'main';
+
+  const newDoc: Doctor = {
+    id: docId,
+    hospitalId,
+    name: String(name).trim(),
+    photoUrl: 'https://images.unsplash.com/photo-1622253692010-333f2da6031d?auto=format&fit=crop&w=600&q=80',
+    qualifications: String(qualifications || 'MBBS').trim(),
+    specialty: String(specialty || 'Consultant').trim(),
+    experienceYears: Number(experienceYears) || 5,
+    summary: String(summary || `Doctor at ${hospital.name}`).trim(),
+    branches: [branchId],
+    active: true,
+    slotDurationMinutes: customSlotDuration,
+    availableDays: days,
+    consultationFee: Number(consultationFee) || 500,
+    mobile: mobile || undefined,
+    email: email || undefined,
+  };
+
+  const newSchedule: DoctorSchedule = {
+    id: `sch_${docId}`,
+    hospitalId,
+    doctorId: docId,
+    branchId,
+    daysOfWeek: days,
+    startTime: startTime || '09:00',
+    endTime: endTime || '17:00',
+    slotDurationMinutes: customSlotDuration,
+    bufferMinutesPerHour: 10,
+    isAvailable: true,
+    notes: 'Standard Consultation Schedule',
+  };
+
+  state.doctors.push(newDoc);
+  state.schedules.push(newSchedule);
+  db.persistState();
+
+  res.json({ success: true, doctor: newDoc, schedule: newSchedule });
+});
+
+// Add Receptionist to Hospital
+apiRouter.post('/hospital-admin/:hospitalId/receptionists', (req, res) => {
+  const { hospitalId } = req.params;
+  const { username, password, name, branchId, assignedDoctorIds } = req.body;
+
+  if (!username || !password) {
+    return res.status(400).json({ error: 'Username and password are required.' });
+  }
+
+  const state = db.getState();
+  const trimmedUser = String(username).trim().toLowerCase();
+  const existing = state.receptionUsers.find((r) => r.username.toLowerCase() === trimmedUser);
+  if (existing) {
+    return res.status(400).json({ error: 'Receptionist username already exists.' });
+  }
+
+  const newRec = {
+    username: trimmedUser,
+    password,
+    name: String(name || trimmedUser).trim(),
+    branchId: branchId || state.branches.find((b) => (b.hospitalId || 'hosp_sdch') === hospitalId)?.id || 'main',
+    hospitalId,
+    assignedDoctorIds: Array.isArray(assignedDoctorIds) ? assignedDoctorIds : [],
+  };
+
+  state.receptionUsers.push(newRec);
+  db.persistState();
+
+  res.json({ success: true, receptionist: newRec });
+});
+
+// --- RECEPTIONIST DASHBOARD (SCOPED TO HOSPITAL) ---
+apiRouter.get('/reception/dashboard', (req, res) => {
+  const { hospitalId, doctorId, branchId, date } = req.query;
+  const state = db.getState();
+  const targetHospitalId = String(hospitalId || 'hosp_sdch');
+  const targetDate = String(date || state.config.simulatedDate);
+
+  // Recalculate session queue for active doctors of this hospital
+  state.sessions
+    .filter((s) => (s.hospitalId || 'hosp_sdch') === targetHospitalId && s.date === targetDate)
+    .forEach((s) => {
+      schedulingService.recalculateSessionQueue(s.doctorId, s.branchId, s.date);
+    });
+
+  // Get appointments strictly scoped to this hospital
+  let appts = (state.appointments || []).filter(
+    (a) => (a.hospitalId || 'hosp_sdch') === targetHospitalId && a.date === targetDate
+  );
+
+  if (doctorId && doctorId !== 'all') {
+    appts = appts.filter((a) => a.doctorId === doctorId);
+  }
+  if (branchId && branchId !== 'all') {
+    appts = appts.filter((a) => a.branchId === branchId);
+  }
+
+  // Sort by booked time
+  appts.sort((a, b) => timeToMinutes(a.bookedTime) - timeToMinutes(b.bookedTime));
+
+  // Compute summary stats
+  const totalToday = appts.length;
+  const onlineBookings = appts.filter((a) => a.bookingSource === 'ONLINE').length;
+  const phoneBookings = appts.filter((a) => a.bookingSource === 'PHONE' || a.bookingSource === 'RECEPTION_PHONE').length;
+  const walkInBookings = appts.filter((a) => a.bookingSource === 'WALK_IN').length;
+  const arrived = appts.filter((a) => a.status === 'ARRIVED').length;
+  const waiting = appts.filter((a) => a.status === 'WAITING' || a.status === 'ARRIVED').length;
+  const withDoctor = appts.filter((a) => a.status === 'WITH_DOCTOR').length;
+  const completed = appts.filter((a) => a.status === 'COMPLETED').length;
+  const cancelled = appts.filter((a) => a.status === 'HOSPITAL_CANCELLED' || a.status === 'RESCHEDULED').length;
+  const noShows = appts.filter((a) => a.status === 'NO_SHOW').length;
+
+  // Current doctor delay
+  let currentDelay = 0;
+  if (doctorId && doctorId !== 'all') {
+    const session = state.sessions.find(
+      (s) => s.doctorId === doctorId && (s.hospitalId || 'hosp_sdch') === targetHospitalId && s.date === targetDate
+    );
+    currentDelay = session?.currentDelayMinutes || 0;
+  }
+
+  const doctors = (state.doctors || []).filter((d) => (d.hospitalId || 'hosp_sdch') === targetHospitalId && d.active);
+  const branches = (state.branches || []).filter((b) => (b.hospitalId || 'hosp_sdch') === targetHospitalId);
+
+  res.json({
+    hospitalId: targetHospitalId,
+    date: targetDate,
+    summary: {
+      totalToday,
+      onlineBookings,
+      phoneBookings,
+      walkInBookings,
+      arrived,
+      waiting,
+      withDoctor,
+      completed,
+      cancelled,
+      noShows,
+      currentDelayMinutes: currentDelay,
+    },
+    appointments: appts,
+    doctors,
+    branches,
+  });
+});
+
+// --- MANDATORY TELEPHONE APPOINTMENT BOOKING ---
+apiRouter.post('/reception/phone-booking', (req, res) => {
+  const {
+    hospitalId,
+    patientName,
+    mobileNumber,
+    patientAge,
+    guardianName,
+    doctorId,
+    branchId,
+    date,
+    bookedTime,
+    bookingSource,
+  } = req.body;
+
+  if (!patientName || !mobileNumber || !doctorId || !date || !bookedTime) {
+    return res.status(400).json({
+      error: 'Patient name, mobile number, doctor, date, and appointment slot are required.',
+    });
+  }
+
+  const state = db.getState();
+  const targetHospitalId = String(hospitalId || 'hosp_sdch');
+  const hospital = (state.hospitals || []).find((h) => h.id === targetHospitalId);
+  const doctor = (state.doctors || []).find((d) => d.id === doctorId && (d.hospitalId || 'hosp_sdch') === targetHospitalId);
+
+  if (!doctor) {
+    return res.status(404).json({ error: 'Doctor not found for this hospital.' });
+  }
+
+  const targetBranchId = branchId || doctor.branches[0] || 'main';
+  const branch = state.branches.find((b) => b.id === targetBranchId);
+
+  // Check double-booking for the slot
+  const isSlotBooked = state.appointments.some(
+    (a) =>
+      (a.hospitalId || 'hosp_sdch') === targetHospitalId &&
+      a.doctorId === doctorId &&
+      a.date === date &&
+      a.bookedTime === bookedTime &&
+      !['RESCHEDULED', 'HOSPITAL_CANCELLED', 'SLOT_RELEASED'].includes(a.status)
+  );
+
+  if (isSlotBooked) {
+    return res.status(409).json({ error: 'This appointment slot is already booked. Please select another slot.' });
+  }
+
+  // Generate structured unique token number
+  const hospPrefix = hospital?.slug ? hospital.slug.substring(0, 4).toUpperCase() : 'HOSP';
+  const ddmmyy = date.replace(/-/g, '').slice(2);
+  const timeCode = bookedTime.replace(':', '');
+  const baseApptNum = `DM-${hospPrefix}-${ddmmyy}-${timeCode}`;
+
+  const duplicates = state.appointments.filter((a) => a.appointmentNumber.startsWith(baseApptNum));
+  const appointmentNumber = duplicates.length > 0 ? `${baseApptNum}-${duplicates.length + 1}` : baseApptNum;
+
+  const apptId = `apt_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
+  const trackingSecret = Math.random().toString(36).substring(2, 10);
+  const now = new Date().toISOString();
+
+  // Create appointment
+  const newAppointment: Appointment = {
+    id: apptId,
+    hospitalId: targetHospitalId,
+    hospitalName: hospital?.name || 'Doctormate Hospital',
+    appointmentNumber,
+    trackingSecret,
+    childId: `pat_${Date.now()}`,
+    childName: String(patientName).trim(),
+    patientAge: patientAge ? Number(patientAge) : undefined,
+    guardianName: guardianName ? String(guardianName).trim() : undefined,
+    parentId: `par_${Date.now()}`,
+    parentName: guardianName ? String(guardianName).trim() : String(patientName).trim(),
+    parentMobile: String(mobileNumber).trim(),
+    doctorId,
+    doctorName: doctor.name,
+    branchId: targetBranchId,
+    branchName: branch?.name || 'Main Branch',
+    date,
+    bookedTime,
+    expectedConsultationTime: bookedTime,
+    recommendedArrivalTime: minutesToTime(Math.max(0, timeToMinutes(bookedTime) - 15)),
+    status: 'BOOKED',
+    paymentStatus: 'PENDING',
+    bookingSource: (bookingSource === 'WALK_IN' ? 'WALK_IN' : 'PHONE') as any,
+    advanceNoticePreferenceMinutes: 30,
+    history: [
+      {
+        timestamp: now,
+        status: 'BOOKED',
+        note: `Telephone booking completed by receptionist for ${patientName}`,
+      },
+    ],
+    createdAt: now,
+    updatedAt: now,
+  };
+
+  state.appointments.push(newAppointment);
+
+  // Recalculate doctor session queue
+  schedulingService.recalculateSessionQueue(doctorId, targetBranchId, date);
+
+  db.persistState();
+
+  const trackerUrl = `/track?id=${encodeURIComponent(appointmentNumber)}&mobile=${encodeURIComponent(mobileNumber)}`;
+  const confirmationText = `Doctormate Appointment Confirmed!\nHospital: ${newAppointment.hospitalName}\nDoctor: ${doctor.name}\nToken: ${appointmentNumber}\nDate: ${date}\nTime: ${bookedTime}\nPatient: ${patientName}\nLive Queue Tracking: ${trackerUrl}`;
+
+  return res.json({
+    success: true,
+    appointment: newAppointment,
+    token: appointmentNumber,
+    trackerUrl,
+    confirmationText,
+  });
+});
+
+// --- PATIENT ONLINE BOOKING ---
+apiRouter.post('/appointments/online-book', (req, res) => {
+  const {
+    hospitalId,
+    doctorId,
+    branchId,
+    date,
+    bookedTime,
+    patientName,
+    mobileNumber,
+    patientAge,
+    guardianName,
+  } = req.body;
+
+  if (!patientName || !mobileNumber || !doctorId || !date || !bookedTime) {
+    return res.status(400).json({
+      error: 'Patient name, mobile number, doctor, date, and appointment slot are required.',
+    });
+  }
+
+  const state = db.getState();
+  const targetHospitalId = String(hospitalId || 'hosp_sdch');
+  const hospital = (state.hospitals || []).find((h) => h.id === targetHospitalId);
+  const doctor = (state.doctors || []).find((d) => d.id === doctorId && (d.hospitalId || 'hosp_sdch') === targetHospitalId);
+
+  if (!doctor) {
+    return res.status(404).json({ error: 'Doctor not found.' });
+  }
+
+  const targetBranchId = branchId || doctor.branches[0] || 'main';
+  const branch = state.branches.find((b) => b.id === targetBranchId);
+
+  // Prevent double-booking
+  const isSlotBooked = state.appointments.some(
+    (a) =>
+      (a.hospitalId || 'hosp_sdch') === targetHospitalId &&
+      a.doctorId === doctorId &&
+      a.date === date &&
+      a.bookedTime === bookedTime &&
+      !['RESCHEDULED', 'HOSPITAL_CANCELLED', 'SLOT_RELEASED'].includes(a.status)
+  );
+
+  if (isSlotBooked) {
+    return res.status(409).json({ error: 'Slot already taken. Please choose another available slot.' });
+  }
+
+  const hospPrefix = hospital?.slug ? hospital.slug.substring(0, 4).toUpperCase() : 'HOSP';
+  const ddmmyy = date.replace(/-/g, '').slice(2);
+  const timeCode = bookedTime.replace(':', '');
+  const baseApptNum = `DM-${hospPrefix}-${ddmmyy}-${timeCode}`;
+
+  const duplicates = state.appointments.filter((a) => a.appointmentNumber.startsWith(baseApptNum));
+  const appointmentNumber = duplicates.length > 0 ? `${baseApptNum}-${duplicates.length + 1}` : baseApptNum;
+
+  const apptId = `apt_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
+  const trackingSecret = Math.random().toString(36).substring(2, 10);
+  const now = new Date().toISOString();
+
+  const newAppointment: Appointment = {
+    id: apptId,
+    hospitalId: targetHospitalId,
+    hospitalName: hospital?.name || 'Doctormate Hospital',
+    appointmentNumber,
+    trackingSecret,
+    childId: `pat_${Date.now()}`,
+    childName: String(patientName).trim(),
+    patientAge: patientAge ? Number(patientAge) : undefined,
+    guardianName: guardianName ? String(guardianName).trim() : undefined,
+    parentId: `par_${Date.now()}`,
+    parentName: guardianName ? String(guardianName).trim() : String(patientName).trim(),
+    parentMobile: String(mobileNumber).trim(),
+    doctorId,
+    doctorName: doctor.name,
+    branchId: targetBranchId,
+    branchName: branch?.name || 'Main Branch',
+    date,
+    bookedTime,
+    expectedConsultationTime: bookedTime,
+    recommendedArrivalTime: minutesToTime(Math.max(0, timeToMinutes(bookedTime) - 15)),
+    status: 'BOOKED',
+    paymentStatus: 'PENDING',
+    bookingSource: 'ONLINE',
+    advanceNoticePreferenceMinutes: 30,
+    history: [
+      {
+        timestamp: now,
+        status: 'BOOKED',
+        note: `Online booking confirmed via Doctormate`,
+      },
+    ],
+    createdAt: now,
+    updatedAt: now,
+  };
+
+  state.appointments.push(newAppointment);
+  schedulingService.recalculateSessionQueue(doctorId, targetBranchId, date);
+  db.persistState();
+
+  const trackerUrl = `/track?id=${encodeURIComponent(appointmentNumber)}&mobile=${encodeURIComponent(mobileNumber)}`;
+
+  res.json({
+    success: true,
+    appointment: newAppointment,
+    token: appointmentNumber,
+    trackerUrl,
+  });
+});
+
+// --- SECURE APPOINTMENT TRACKING ---
+apiRouter.get('/appointments/secure-track', (req, res) => {
+  const { id, token, mobile, secret } = req.query;
+  const state = db.getState();
+  const searchId = String(id || token || '').trim().toLowerCase();
+  const searchMobile = String(mobile || '').replace(/\D/g, '');
+  const searchSecret = String(secret || '').trim();
+
+  if (!searchId) {
+    return res.status(400).json({ error: 'Please enter your Appointment ID or Token number.' });
+  }
+
+  // Find appointment
+  const appt = state.appointments.find(
+    (a) => a.appointmentNumber.toLowerCase() === searchId || a.id.toLowerCase() === searchId
+  );
+
+  if (!appt) {
+    return res.status(404).json({ error: 'Appointment not found. Please check your booking ID and try again.' });
+  }
+
+  // Privacy verification step:
+  // Require matching mobile number (last 4 or full 10 digits) OR matching tracking secret
+  const apptMobileDigits = appt.parentMobile.replace(/\D/g, '');
+  const isMobileVerified =
+    searchMobile.length >= 4 &&
+    (apptMobileDigits.endsWith(searchMobile) || apptMobileDigits === searchMobile);
+  const isSecretVerified = Boolean(searchSecret && appt.trackingSecret && searchSecret === appt.trackingSecret);
+
+  if (!isMobileVerified && !isSecretVerified) {
+    return res.status(401).json({
+      verificationRequired: true,
+      error: 'Security verification required. Please enter the patient registered mobile number (or last 4 digits) to view your queue status.',
+    });
+  }
+
+  // Recalculate live queue for the doctor session
+  schedulingService.recalculateSessionQueue(appt.doctorId, appt.branchId, appt.date);
+
+  const session = state.sessions.find(
+    (s) => s.doctorId === appt.doctorId && s.branchId === appt.branchId && s.date === appt.date
+  );
+
+  const hospital = (state.hospitals || []).find((h) => h.id === (appt.hospitalId || 'hosp_sdch'));
+  const doctor = (state.doctors || []).find((d) => d.id === appt.doctorId);
+
+  // Compute patients ahead (appointments earlier in queue that are not finished)
+  const queueAppointments = state.appointments
+    .filter(
+      (a) =>
+        (a.hospitalId || 'hosp_sdch') === (appt.hospitalId || 'hosp_sdch') &&
+        a.doctorId === appt.doctorId &&
+        a.branchId === appt.branchId &&
+        a.date === appt.date &&
+        !['COMPLETED', 'NO_SHOW', 'HOSPITAL_CANCELLED', 'RESCHEDULED'].includes(a.status)
+    )
+    .sort((a, b) => timeToMinutes(a.bookedTime) - timeToMinutes(b.bookedTime));
+
+  const apptIndex = queueAppointments.findIndex((a) => a.id === appt.id);
+  const patientsAhead = apptIndex >= 0 ? apptIndex : 0;
+  const positionInQueue = apptIndex >= 0 ? apptIndex + 1 : 1;
+
+  res.json({
+    success: true,
+    appointmentNumber: appt.appointmentNumber,
+    hospitalName: appt.hospitalName || hospital?.name || 'Doctormate Hospital',
+    doctorName: doctor?.name || appt.doctorName,
+    doctorSpecialty: doctor?.specialty || 'Specialist Consultant',
+    patientName: appt.childName,
+    date: appt.date,
+    scheduledTime: appt.bookedTime,
+    status: appt.status,
+    positionInQueue,
+    patientsAhead,
+    estimatedConsultationTime: appt.expectedConsultationTime || appt.bookedTime,
+    estimatedDelayMinutes: session?.currentDelayMinutes || 0,
+    recommendedArrivalTime: appt.recommendedArrivalTime || appt.bookedTime,
+    lastUpdatedTime: new Date().toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' }),
+  });
+});
+
+// Doctor delay update from Receptionist
+apiRouter.post('/reception/doctor-delay', (req, res) => {
+  const { hospitalId, doctorId, branchId, date, delayMinutes, explanation } = req.body;
+  if (!doctorId || delayMinutes === undefined) {
+    return res.status(400).json({ error: 'Doctor ID and delay minutes are required.' });
+  }
+
+  const state = db.getState();
+  const targetHospitalId = String(hospitalId || 'hosp_sdch');
+  const targetDate = String(date || state.config.simulatedDate);
+  const targetBranchId = branchId || state.doctors.find((d) => d.id === doctorId)?.branches[0] || 'main';
+
+  let session = state.sessions.find(
+    (s) => (s.hospitalId || 'hosp_sdch') === targetHospitalId && s.doctorId === doctorId && s.branchId === targetBranchId && s.date === targetDate
+  );
+
+  if (!session) {
+    session = schedulingService.ensureDoctorSession(doctorId, targetBranchId, targetDate);
+    session.hospitalId = targetHospitalId;
+  }
+
+  session.currentDelayMinutes = Math.max(0, Number(delayMinutes));
+  if (explanation) session.cancellationNotice = String(explanation);
+
+  // Recalculate rolling ETAs for this session
+  schedulingService.recalculateSessionQueue(doctorId, targetBranchId, targetDate);
+  db.persistState();
+
+  res.json({
+    success: true,
+    session,
+    message: `Doctor delay updated to ${delayMinutes} minutes. ETAs dynamically recalculated.`,
+  });
+});
 
 // --- PUBLIC & AUTH ENDPOINTS ---
 
@@ -119,9 +1011,11 @@ apiRouter.post('/auth/reception-login', (req, res) => {
   if (!user || user.password !== password) {
     return res.status(401).json({
       success: false,
-      message: 'Invalid reception credentials. (e.g. reception.kakinada / Reception@123)',
+      message: 'Invalid reception credentials. (e.g. reception.kakinada / Reception@123 or reception.citycare / Reception@123)',
     });
   }
+
+  const hospital = (state.hospitals || []).find((h) => h.id === (user.hospitalId || 'hosp_sdch'));
 
   return res.json({
     success: true,
@@ -129,6 +1023,9 @@ apiRouter.post('/auth/reception-login', (req, res) => {
       username: user.username,
       name: user.name,
       branchId: user.branchId,
+      hospitalId: user.hospitalId || 'hosp_sdch',
+      hospitalName: hospital?.name || 'Doctormate Hospital',
+      assignedDoctorIds: user.assignedDoctorIds || [],
     },
   });
 });
@@ -782,7 +1679,7 @@ apiRouter.post('/reception/cancel-session', (req, res) => {
 
 // Live Queue for doctor & branch
 apiRouter.get('/queue/live', (req, res) => {
-  const { doctorId, branchId, date } = req.query;
+  const { doctorId, branchId, date, hospitalId } = req.query;
   const state = db.getState();
   ensureComprehensiveDemoData(state);
   const isAllDates = date === 'all';
@@ -800,13 +1697,13 @@ apiRouter.get('/queue/live', (req, res) => {
   }
 
   let session = isAllDoctors
-    ? state.sessions.find((s) => s.branchId === branchId && s.date === (targetDate || state.config.simulatedDate))
+    ? state.sessions.find((s) => s.branchId === branchId && s.date === (targetDate || state.config.simulatedDate) && (!hospitalId || (s.hospitalId || 'hosp_sdch') === hospitalId))
     : state.sessions.find(
-        (s) => s.doctorId === doctorId && s.branchId === branchId && s.date === (targetDate || state.config.simulatedDate)
+        (s) => s.doctorId === doctorId && s.branchId === branchId && s.date === (targetDate || state.config.simulatedDate) && (!hospitalId || (s.hospitalId || 'hosp_sdch') === hospitalId)
       );
 
   if (!session && branchId) {
-    const defaultDocId = isAllDoctors ? (state.doctors[0]?.id || 'dr-subba-rao') : String(doctorId);
+    const defaultDocId = isAllDoctors ? (state.doctors.find((d) => !hospitalId || (d.hospitalId || 'hosp_sdch') === hospitalId)?.id || 'dr-subba-rao') : String(doctorId);
     session = schedulingService.ensureDoctorSession(
       defaultDocId,
       branchId as BranchId,
@@ -817,6 +1714,7 @@ apiRouter.get('/queue/live', (req, res) => {
   const appointments = state.appointments
     .filter(
       (a) =>
+        (!hospitalId || (a.hospitalId || 'hosp_sdch') === hospitalId) &&
         (isAllDoctors || a.doctorId === doctorId) &&
         (!branchId || a.branchId === branchId) &&
         (isAllDates || a.date === targetDate) &&
