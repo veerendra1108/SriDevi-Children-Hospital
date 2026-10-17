@@ -3055,8 +3055,8 @@ export const DoctorDashboard: React.FC<DoctorDashboardProps> = ({
                   <Award className="w-5 h-5" />
                 </div>
                 <div>
-                  <h3 className="font-extrabold text-slate-900 text-lg">Sri Devi Children Hospital</h3>
-                  <div className="text-xs text-slate-500">Kakinada &amp; Pithapuram • Pediatric OPD</div>
+                  <h3 className="font-extrabold text-slate-900 text-lg">{(showPrintPrescription as any).hospitalName || 'Apex Multi-Specialty Hospital'}</h3>
+                  <div className="text-xs text-slate-500">Smart OPD &amp; Clinical Consultation</div>
                 </div>
               </div>
 
@@ -3218,7 +3218,7 @@ export const DoctorDashboard: React.FC<DoctorDashboardProps> = ({
             {/* Doctor Signature Block (D10) */}
             <div className="pt-6 flex items-end justify-between text-xs">
               <div className="text-[11px] text-slate-400">
-                Generated via Doctormate Pediatric EMR • Sri Devi Children Hospital
+                Generated via Doctormate Smart OPD Platform
               </div>
               <div className="text-right">
                 {Boolean((showPrintPrescription as any).isDraft) ? (

@@ -126,8 +126,8 @@ export class VaccinationService {
         firstDose.status = 'GIVEN';
         firstDose.givenDate = params.firstVaccineDate;
         firstDose.administeredBy = params.registeredBy || 'Dr. Subba Rao Vadarevu';
-        firstDose.batchNumber = params.batchNumber || 'SRI-VAC-2026';
-        firstDose.notes = params.notes || 'Administered at Sri Devi Children Hospital during registration.';
+        firstDose.batchNumber = params.batchNumber || 'APX-VAC-2026';
+        firstDose.notes = params.notes || 'Administered at Hospital OPD during registration.';
         firstDose.updatedAt = `${today} 10:30:00`;
       }
     }

@@ -195,7 +195,7 @@ export const PrescriptionGrowthBackPage: React.FC<PrescriptionGrowthBackPageProp
           </div>
           <div>
             <h2 className="font-extrabold text-slate-900 text-base leading-tight">
-              Sri Devi Children Hospital • Pediatric Growth &amp; Nutrition Guide
+              Apex Multi-Specialty Hospital • Patient Growth &amp; Nutrition Guide
             </h2>
             <div className="text-xs text-teal-800 font-medium">
               పిల్లల శారీరక ఎదుగుదల &amp; పోషకాహార మార్గదర్శిని (Back of Prescription)
@@ -513,7 +513,7 @@ export const PrescriptionGrowthBackPage: React.FC<PrescriptionGrowthBackPageProp
       {/* Footer Notice */}
       <div className="mt-4 pt-3 border-t border-slate-200 flex items-center justify-between text-[10px] text-slate-500">
         <div>
-          Sri Devi Children Hospital • Dr. M. Subba Rao, M.D. (Pedi) • APMC Registered Pediatrician
+          Apex Multi-Specialty Hospital • OPD Clinical Consultation &amp; Health Guide
         </div>
         <div>
           Consultation Helpline: <strong>+91 944 011 2233</strong> • Routine Growth Check-ups Every 6 Months

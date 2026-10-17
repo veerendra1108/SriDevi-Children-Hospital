@@ -234,7 +234,7 @@ export class SchedulingService {
           this.sendSimulatedNotification(
             appt,
             'Consultation Approaching',
-            `Your child's consultation with ${appt.doctorName} is approaching. There are currently ${appt.childrenAhead} children ahead of you. Please proceed to Sri Devi Children Hospital.`
+            `Your consultation with ${appt.doctorName} is approaching. There are currently ${appt.childrenAhead} patients ahead of you. Please proceed to ${appt.hospitalName || 'the hospital'}.`
           );
         }
       }

@@ -102,7 +102,7 @@ export const GallerySection: React.FC<GallerySectionProps> = ({ gallery }) => {
                   <p className="text-xs text-slate-500 leading-relaxed">{item.caption}</p>
                 </div>
                 <div className="pt-3 mt-3 border-t border-slate-100 text-[11px] text-teal-700 font-semibold flex items-center gap-1">
-                  <span>Sri Devi Children Hospital</span>
+                  <span>Apex Multi-Specialty Hospital</span>
                 </div>
               </div>
             </div>

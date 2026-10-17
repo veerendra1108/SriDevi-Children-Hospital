@@ -71,7 +71,10 @@ apiRouter.get('/hospitals/:slug', (req, res) => {
   const { slug } = req.params;
   const state = db.getState();
   const hospital = (state.hospitals || []).find(
-    (h) => h.slug.toLowerCase() === slug.toLowerCase() || h.id === slug
+    (h) =>
+      h.slug.toLowerCase() === slug.toLowerCase() ||
+      h.id === slug ||
+      (slug.toLowerCase() === 'sri-devi' && h.id === 'hosp_sdch')
   );
 
   if (!hospital) {
@@ -3334,7 +3337,7 @@ apiRouter.post('/emr/encounters/:encounterId/finalize', requireDoctorAuth, (req:
     doctorId: doctor.id,
     doctorName: doctor.name,
     doctorRegNo: doctorAccount?.medicalRegistrationNo || doctor.medicalRegistrationNo || doctor.regNo || 'APMC-38492',
-    hospitalName: 'Sri Devi Children Hospital',
+    hospitalName: (doctorAccount?.hospitalId && state.hospitals?.find((h) => h.id === doctorAccount.hospitalId)?.name) || (state.hospitals && state.hospitals[0]?.name) || 'Apex Multi-Specialty Hospital',
     branchId: encounter.branchId,
     date: state.config.simulatedDate,
     version: 1,

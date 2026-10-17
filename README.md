@@ -111,9 +111,9 @@ The test suite validates all 7 core Phase 1 flows:
 
 | Role | Hospital | Credentials |
 |---|---|---|
-| **Hospital Admin** | Sri Devi Children Hospital | `admin@sridevi.com` / `Admin@123` |
+| **Hospital Admin** | Apex Multi-Specialty Hospital | `admin@apexhealth.com` / `Admin@123` |
 | **Hospital Admin** | City Care Clinic | `admin@citycare.com` / `Admin@123` |
-| **Reception Desk** | Sri Devi Children Hospital | `reception.kakinada` / `Reception@123` |
+| **Reception Desk** | Apex Multi-Specialty Hospital | `reception.apex` / `Reception@123` |
 | **Reception Desk** | City Care Clinic | `reception.citycare` / `Reception@123` |
 
 ---

@@ -338,7 +338,7 @@ export const TeleconsultationSection: React.FC<TeleconsultationSectionProps> = (
                     {/* WhatsApp Helpline Connect */}
                     <a
                       href={`https://wa.me/919440112233?text=${encodeURIComponent(
-                        `Hello Sri Devi Children Hospital, regarding my teleconsultation ${item.teleconsultNumber} for ${item.childName}. I am available and ready.`
+                        `Hello Hospital Reception, regarding my teleconsultation ${item.teleconsultNumber} for ${item.childName}. I am available and ready.`
                       )}`}
                       target="_blank"
                       rel="noopener noreferrer"
@@ -686,7 +686,7 @@ export const TeleconsultationSection: React.FC<TeleconsultationSectionProps> = (
                 <div className="p-3 bg-white rounded-xl border border-emerald-200 text-xs space-y-2">
                   <div className="flex flex-wrap items-center justify-between gap-2 text-[11px]">
                     <span className="font-bold text-slate-800">
-                      Hospital UPI ID: <strong className="text-teal-800 font-mono">sridevihospital@upi</strong>
+                      Hospital UPI ID: <strong className="text-teal-800 font-mono">hospitalopd@upi</strong>
                     </span>
                     <button
                       type="button"
@@ -748,12 +748,12 @@ export const TeleconsultationSection: React.FC<TeleconsultationSectionProps> = (
         {showQrModal && (
           <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4">
             <div className="bg-white rounded-3xl max-w-sm w-full p-6 text-center shadow-2xl border border-slate-200">
-              <h4 className="font-extrabold text-slate-900 text-base mb-1">Sri Devi Children Hospital</h4>
+              <h4 className="font-extrabold text-slate-900 text-base mb-1">Apex Multi-Specialty Hospital</h4>
               <p className="text-xs text-slate-500 mb-4">Official Hospital Teleconsultation QR</p>
 
               <div className="w-48 h-48 mx-auto bg-slate-100 rounded-2xl border-2 border-teal-500 flex flex-col items-center justify-center p-2 mb-4">
                 <QrCode className="w-32 h-32 text-slate-800" />
-                <span className="text-[10px] font-mono font-bold text-teal-800 mt-1">sridevihospital@upi</span>
+                <span className="text-[10px] font-mono font-bold text-teal-800 mt-1">hospitalopd@upi</span>
               </div>
 
               <div className="text-xs font-bold text-slate-800 mb-1">Fee: ₹300</div>

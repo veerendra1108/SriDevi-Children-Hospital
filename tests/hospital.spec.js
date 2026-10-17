@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test';
-test('Sri Devi Children Hospital application opens successfully', async ({ page }) => {
+test('Doctormate SaaS platform opens successfully', async ({ page }) => {
 
   await page.goto('http://localhost:3000');
 

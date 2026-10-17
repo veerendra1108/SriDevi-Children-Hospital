@@ -440,7 +440,7 @@ export const TrackAppointmentModal: React.FC<TrackAppointmentModalProps> = ({
                             <p className="text-[11px] text-emerald-900 bg-emerald-50/80 p-2.5 rounded-lg border border-emerald-200 flex items-start gap-1.5 font-medium">
                               <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600 shrink-0 mt-0.5" />
                               <span>
-                                <strong>Check-in Completed:</strong> Patient is present at Sri Devi Children Hospital. Please relax in the waiting lounge until called.
+                                <strong>Check-in Completed:</strong> Patient is present at {appt.hospitalName || 'the hospital'}. Please relax in the waiting lounge until called.
                               </span>
                             </p>
                           ) : (

@@ -43,7 +43,7 @@ export const TrustSection: React.FC = () => {
           </p>
 
           <p className="text-sm sm:text-base text-teal-800 font-medium leading-relaxed">
-            At Sri Devi Children Hospital, we believe pediatric care should remain personal, accessible and centered around every child.
+            At Apex Multi-Specialty Hospital, we believe pediatric care should remain personal, accessible and centered around every child.
           </p>
         </div>
 

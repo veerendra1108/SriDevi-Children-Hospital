@@ -13,16 +13,7 @@ import {
   Hospital,
   HospitalAdminUser,
 } from './types/index.js';
-import { Header } from './components/Header.js';
-import { Footer } from './components/Footer.js';
 import { SimulationBar } from './components/SimulationBar.js';
-import { HeroSection } from './components/HeroSection.js';
-import { TrustSection } from './components/TrustSection.js';
-import { DoctorsSection } from './components/DoctorsSection.js';
-import { LocationsSection } from './components/LocationsSection.js';
-import { GallerySection } from './components/GallerySection.js';
-import { ReviewsSection } from './components/ReviewsSection.js';
-import { ContactSection } from './components/ContactSection.js';
 import { ParentLoginModal } from './components/ParentLoginModal.js';
 import { ReceptionLoginModal } from './components/ReceptionLoginModal.js';
 import { DoctorLoginModal } from './components/DoctorLoginModal.js';
@@ -33,7 +24,6 @@ import { ReceptionDashboard } from './components/ReceptionDashboard.js';
 import { DoctorDashboard } from './components/DoctorDashboard.js';
 import { AnalyticsModal } from './components/AnalyticsModal.js';
 import { TrackAppointmentModal } from './components/TrackAppointmentModal.js';
-import { TeleconsultationSection } from './components/TeleconsultationSection.js';
 
 // Doctormate SaaS Phase 1 Components
 import { DoctormateHome } from './components/DoctormateHome.js';
@@ -46,15 +36,14 @@ import { HospitalLoginModal } from './components/HospitalLoginModal.js';
 
 export default function App() {
   const [activeTab, setActiveTab] = useState<string>(() => {
-    const saved = localStorage.getItem('sri_devi_active_tab');
+    const saved = localStorage.getItem('doctormate_active_tab');
     return (
       saved === 'doctor-desk' ||
       saved === 'reception-desk' ||
       saved === 'parent-portal' ||
       saved === 'hospital-admin' ||
       saved === 'hospital-booking' ||
-      saved === 'track-appointment' ||
-      saved === 'hospital-legacy'
+      saved === 'track-appointment'
     )
       ? saved
       : 'saas-home';
@@ -62,7 +51,7 @@ export default function App() {
 
   const [parentUser, setParentUser] = useState<Parent | null>(null);
   const [parentToken, setParentToken] = useState<string | null>(() => {
-    return localStorage.getItem('sri_devi_parent_token');
+    return localStorage.getItem('doctormate_parent_token');
   });
 
   const [receptionUser, setReceptionUser] = useState<{
@@ -93,7 +82,7 @@ export default function App() {
   });
 
   // Active hospital for public booking view
-  const [activeHospitalSlug, setActiveHospitalSlug] = useState<string>('sri-devi');
+  const [activeHospitalSlug, setActiveHospitalSlug] = useState<string>('apex-hospital');
   const [trackingToken, setTrackingToken] = useState<string | undefined>(undefined);
   const [onboardingHospital, setOnboardingHospital] = useState<Hospital | null>(null);
 
@@ -134,7 +123,7 @@ export default function App() {
 
   // Synchronize activeTab in localStorage and update browser title
   useEffect(() => {
-    localStorage.setItem('sri_devi_active_tab', activeTab);
+    localStorage.setItem('doctormate_active_tab', activeTab);
     const titles: Record<string, string> = {
       'saas-home': 'Doctormate — Multi-Hospital Smart OPD & Live Queue Platform',
       'hospital-booking': 'Book Hospital Appointment | Doctormate Smart OPD',
@@ -142,9 +131,8 @@ export default function App() {
       'hospital-admin': 'Hospital Administration Portal | Doctormate',
       'onboarding': 'Hospital Onboarding Wizard | Doctormate',
       'reception-desk': 'Reception Desk Operations Console | Doctormate OPD',
-      'parent-portal': 'Patient Portal | Sri Devi Children Hospital',
-      'doctor-desk': 'Doctor Consultation Console | Sri Devi Children Hospital',
-      'hospital-legacy': 'Sri Devi Children Hospital | Kakinada & Pithapuram',
+      'parent-portal': 'Patient Health Portal | Doctormate',
+      'doctor-desk': 'Doctor Consultation Console | Doctormate',
     };
     document.title = titles[activeTab] || 'Doctormate — Multi-Hospital Smart OPD Platform';
   }, [activeTab]);
@@ -464,7 +452,6 @@ export default function App() {
 
   // Quick switch navigation bar when viewing sub-pages
   const isSaasHome = activeTab === 'saas-home';
-  const isLegacyWebsite = activeTab === 'hospital-legacy';
 
   return (
     <div className="min-h-screen flex flex-col bg-white text-slate-900 selection:bg-teal-100 selection:text-teal-900">
@@ -482,7 +469,7 @@ export default function App() {
       />
 
       {/* Global Context Bar when navigating away from SaaS Home */}
-      {!isSaasHome && !isLegacyWebsite && (
+      {!isSaasHome && (
         <div className="bg-slate-900 text-white text-xs py-2 px-4 border-b border-slate-800">
           <div className="max-w-7xl mx-auto flex items-center justify-between">
             <div className="flex items-center gap-3">
@@ -517,23 +504,6 @@ export default function App() {
         </div>
       )}
 
-      {/* Header ONLY shown for legacy hospital site */}
-      {isLegacyWebsite && (
-        <Header
-          currentView={activeTab}
-          onNavigate={handleNavigate}
-          parentUser={parentUser}
-          receptionUser={receptionUser}
-          doctorUser={doctorUser}
-          onOpenParentLogin={() => setIsParentLoginOpen(true)}
-          onOpenReceptionLogin={() => setIsReceptionLoginOpen(true)}
-          onOpenDoctorLogin={() => setIsDoctorLoginOpen(true)}
-          onLogoutParent={handleLogoutParent}
-          onLogoutReception={handleLogoutReception}
-          onLogoutDoctor={handleLogoutDoctor}
-        />
-      )}
-
       {/* Main View Switcher */}
       <main className="flex-1">
         {activeTab === 'saas-home' ? (
@@ -550,11 +520,11 @@ export default function App() {
             }}
             onGoToReceptionDemo={() => {
               setReceptionUser({
-                username: 'reception.kakinada',
-                branchId: 'kakinada-main',
-                name: 'Sri Devi Reception Desk',
+                username: 'reception.apex',
+                branchId: 'kakinada',
+                name: 'Apex Hospital Reception Desk',
                 hospitalId: 'hosp_sdch',
-                hospitalName: 'Sri Devi Children Hospital',
+                hospitalName: 'Apex Multi-Specialty Hospital',
               });
               setActiveTab('reception-desk');
             }}
@@ -563,25 +533,25 @@ export default function App() {
                 {
                   id: 'admin_sdch',
                   hospitalId: 'hosp_sdch',
-                  name: 'Dr. M. Subba Rao',
-                  email: 'admin@sridevi.com',
-                  mobile: '9440112233',
+                  name: 'Dr. Vivek Sharma',
+                  email: 'admin@apexhealth.com',
+                  mobile: '9888877777',
                   role: 'HOSPITAL_ADMIN',
                   createdAt: new Date().toISOString(),
                 },
                 {
                   id: 'hosp_sdch',
-                  slug: 'sri-devi',
-                  name: 'Sri Devi Children Hospital',
-                  address: 'Main Road',
-                  city: 'Kakinada',
+                  slug: 'apex-hospital',
+                  name: 'Apex Multi-Specialty Hospital',
+                  address: '77 Healthcare Boulevard, Beach Road',
+                  city: 'Visakhapatnam',
                   state: 'Andhra Pradesh',
-                  pincode: '533001',
-                  phone: '+91 944 011 2233',
-                  adminName: 'Dr. M. Subba Rao',
-                  adminEmail: 'admin@sridevi.com',
-                  adminMobile: '9440112233',
-                  hospitalType: 'Children Hospital & Research Institute',
+                  pincode: '530002',
+                  phone: '+91 891 223 4455',
+                  adminName: 'Dr. Vivek Sharma',
+                  adminEmail: 'admin@apexhealth.com',
+                  adminMobile: '9888877777',
+                  hospitalType: 'Super Speciality Hospital & Trauma Center',
                   status: 'ACTIVE',
                   onboardingStep: 6,
                   createdAt: new Date().toISOString(),
@@ -670,42 +640,18 @@ export default function App() {
             onLogout={handleLogoutDoctor}
           />
         ) : (
-          /* Legacy Sri Devi Website View */
-          <div>
-            <HeroSection
-              onBookClick={() => handleOpenBooking()}
-              onTrackClick={() => setIsTrackModalOpen(true)}
-            />
-            <TrustSection />
-            <DoctorsSection
-              doctors={doctors}
-              schedules={schedules}
-              onBookWithDoctor={(docId) => handleOpenBooking(docId)}
-            />
-            <TeleconsultationSection
-              doctors={doctors}
-              simulatedDate={config.simulatedDate}
-              onBookInPerson={() => handleOpenBooking()}
-            />
-            <LocationsSection
-              branches={branches}
-              onBookAtBranch={(bId) => handleOpenBooking(undefined, bId)}
-            />
-            <GallerySection gallery={gallery} />
-            <ReviewsSection reviews={reviews} />
-            <ContactSection branches={branches} />
+          <div className="py-20 text-center">
+            <h3 className="text-xl font-bold text-slate-800 mb-2">Welcome to Doctormate</h3>
+            <p className="text-sm text-slate-500 mb-6">Explore registered hospitals or access your OPD portal.</p>
+            <button
+              onClick={() => setActiveTab('saas-home')}
+              className="px-6 py-2.5 bg-teal-600 hover:bg-teal-700 text-white font-semibold rounded-xl"
+            >
+              Back to Doctormate Home
+            </button>
           </div>
         )}
       </main>
-
-      {/* Footer ONLY for legacy website */}
-      {isLegacyWebsite && (
-        <Footer
-          onNavigate={handleNavigate}
-          onOpenParentLogin={() => setIsParentLoginOpen(true)}
-          onOpenReceptionLogin={() => setIsReceptionLoginOpen(true)}
-        />
-      )}
 
       {/* Hospital Registration Modal */}
       <HospitalRegistrationModal

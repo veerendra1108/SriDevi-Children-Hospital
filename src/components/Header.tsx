@@ -111,7 +111,7 @@ export const Header: React.FC<HeaderProps> = ({
               </div>
               <div>
                 <div className="font-bold text-slate-900 text-lg sm:text-xl tracking-tight leading-tight">
-                  Sri Devi Children Hospital
+                  Apex Multi-Specialty Hospital
                 </div>
                 <div className="flex items-center gap-2 text-xs font-medium text-teal-700">
                   <span className="flex items-center gap-0.5">

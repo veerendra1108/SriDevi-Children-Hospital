@@ -84,9 +84,9 @@ export const HospitalLoginModal: React.FC<HospitalLoginModalProps> = ({
     }
   };
 
-  const fillDemoAdmin = (type: 'SDCH' | 'CITYCARE') => {
-    if (type === 'SDCH') {
-      setAdminEmail('admin@sridevi.com');
+  const fillDemoAdmin = (type: 'APEX' | 'CITYCARE') => {
+    if (type === 'APEX') {
+      setAdminEmail('admin@apexhealth.com');
       setAdminPassword('Admin@123');
     } else {
       setAdminEmail('admin@citycare.com');
@@ -95,9 +95,9 @@ export const HospitalLoginModal: React.FC<HospitalLoginModalProps> = ({
     setError(null);
   };
 
-  const fillDemoReception = (type: 'SDCH' | 'CITYCARE') => {
-    if (type === 'SDCH') {
-      setReceptionUsername('reception.kakinada');
+  const fillDemoReception = (type: 'APEX' | 'CITYCARE') => {
+    if (type === 'APEX') {
+      setReceptionUsername('reception.apex');
       setReceptionPassword('Reception@123');
     } else {
       setReceptionUsername('reception.citycare');
@@ -215,10 +215,10 @@ export const HospitalLoginModal: React.FC<HospitalLoginModalProps> = ({
                 <div className="flex gap-2">
                   <button
                     type="button"
-                    onClick={() => fillDemoAdmin('SDCH')}
+                    onClick={() => fillDemoAdmin('APEX')}
                     className="flex-1 text-[11px] py-1 px-2 bg-white border border-slate-200 rounded-lg text-slate-700 hover:border-teal-400 hover:text-teal-700 font-medium transition"
                   >
-                    Sri Devi Hospital
+                    Apex Hospital
                   </button>
                   <button
                     type="button"
@@ -283,10 +283,10 @@ export const HospitalLoginModal: React.FC<HospitalLoginModalProps> = ({
                 <div className="flex gap-2">
                   <button
                     type="button"
-                    onClick={() => fillDemoReception('SDCH')}
+                    onClick={() => fillDemoReception('APEX')}
                     className="flex-1 text-[11px] py-1 px-2 bg-white border border-slate-200 rounded-lg text-slate-700 hover:border-teal-400 hover:text-teal-700 font-medium transition"
                   >
-                    Sri Devi Desk
+                    Apex Desk
                   </button>
                   <button
                     type="button"

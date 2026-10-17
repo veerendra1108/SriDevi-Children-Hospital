@@ -297,7 +297,7 @@ export const BookAppointmentModal: React.FC<BookAppointmentModalProps> = ({
                 Quick Appointment Booking
               </h3>
               <p className="text-[11px] text-teal-700 font-medium">
-                Sri Devi Children Hospital • No password needed
+                Doctormate Smart OPD • Instant Verified Booking
               </p>
             </div>
           </div>

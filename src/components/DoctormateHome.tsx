@@ -91,10 +91,13 @@ export const DoctormateHome: React.FC<DoctormateHomeProps> = ({
 
   const handleNavClick = (anchorId: string) => {
     setMobileMenuOpen(false);
-    const el = document.getElementById(anchorId);
-    if (el) {
-      el.scrollIntoView({ behavior: 'smooth' });
-    }
+    // Allow the mobile menu drawer to finish closing so layout measurements stabilize
+    setTimeout(() => {
+      const el = document.getElementById(anchorId);
+      if (el) {
+        el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      }
+    }, 120);
   };
 
   return (
@@ -118,7 +121,7 @@ export const DoctormateHome: React.FC<DoctormateHomeProps> = ({
               className="text-teal-200 hover:text-white transition flex items-center gap-1 font-medium"
             >
               <Sparkles className="w-3.5 h-3.5 text-amber-300" />
-              Sri Devi Admin
+              Apex Admin Portal
             </button>
             <span className="text-teal-600 hidden sm:inline">|</span>
             <button
@@ -390,7 +393,7 @@ export const DoctormateHome: React.FC<DoctormateHomeProps> = ({
       </section>
 
       {/* Hospital Directory Section */}
-      <section id="hospitals-directory" className="py-16 bg-white border-b border-slate-200/60">
+      <section id="hospitals-directory" className="py-16 bg-white border-b border-slate-200/60 scroll-mt-20">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="flex flex-col md:flex-row md:items-end justify-between gap-4 mb-8">
             <div>
@@ -497,7 +500,7 @@ export const DoctormateHome: React.FC<DoctormateHomeProps> = ({
       </section>
 
       {/* Platform Capabilities (Phase 1 Focus) */}
-      <section id="features" className="py-20 bg-slate-50 border-b border-slate-200/60">
+      <section id="features" className="py-20 bg-slate-50 border-b border-slate-200/60 scroll-mt-20">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="text-center max-w-2xl mx-auto mb-16">
             <span className="text-xs font-bold text-teal-600 uppercase tracking-wider">
@@ -594,7 +597,7 @@ export const DoctormateHome: React.FC<DoctormateHomeProps> = ({
       </section>
 
       {/* How it Works */}
-      <section id="how-it-works" className="py-20 bg-white border-b border-slate-200/60">
+      <section id="how-it-works" className="py-20 bg-white border-b border-slate-200/60 scroll-mt-20">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="text-center max-w-2xl mx-auto mb-16">
             <span className="text-xs font-bold text-teal-600 uppercase tracking-wider">
@@ -640,7 +643,7 @@ export const DoctormateHome: React.FC<DoctormateHomeProps> = ({
       </section>
 
       {/* Architecture Section (DM-R1-003) */}
-      <section id="architecture" className="py-20 bg-slate-50 border-b border-slate-200/60">
+      <section id="architecture" className="py-20 bg-slate-50 border-b border-slate-200/60 scroll-mt-20">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="text-center max-w-2xl mx-auto mb-16">
             <span className="text-xs font-bold text-teal-600 uppercase tracking-wider">

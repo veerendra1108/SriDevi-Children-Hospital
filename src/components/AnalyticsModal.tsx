@@ -54,7 +54,7 @@ export const AnalyticsModal: React.FC<AnalyticsModalProps> = ({ isOpen, onClose 
         <div className="space-y-1">
           <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-teal-50 border border-teal-200 text-teal-800 text-xs font-semibold">
             <TrendingUp className="w-3.5 h-3.5 text-teal-600" />
-            <span>Sri Devi Children Hospital • Operations Intelligence</span>
+            <span>Doctormate Smart OPD • Operations Intelligence</span>
           </div>
           <h3 className="text-xl sm:text-2xl font-bold text-slate-900">
             Hospital Operational Performance Analytics

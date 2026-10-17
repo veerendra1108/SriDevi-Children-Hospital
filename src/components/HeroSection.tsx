@@ -31,7 +31,7 @@ export const HeroSection: React.FC<HeroSectionProps> = ({ onBookClick, onTrackCl
             {/* Location & Trust Tag */}
             <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full bg-teal-100/80 border border-teal-200 text-teal-900 text-xs font-semibold shadow-xs">
               <span className="w-2 h-2 rounded-full bg-teal-600" />
-              <span>Sri Devi Children Hospital</span>
+              <span>Apex Multi-Specialty Hospital</span>
               <span className="text-teal-400">•</span>
               <span className="flex items-center gap-1 font-medium text-teal-800">
                 <MapPin className="w-3 h-3" />
@@ -103,7 +103,7 @@ export const HeroSection: React.FC<HeroSectionProps> = ({ onBookClick, onTrackCl
                 
                 <div className="absolute bottom-4 left-4 right-4 text-white">
                   <div className="text-xs font-semibold uppercase tracking-wider text-teal-300">
-                    Sri Devi Children Hospital
+                    Apex Multi-Specialty Hospital
                   </div>
                   <div className="text-base font-bold">
                     Experienced Pediatric Leadership

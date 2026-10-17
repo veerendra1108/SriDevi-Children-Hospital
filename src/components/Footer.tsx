@@ -23,7 +23,7 @@ export const Footer: React.FC<FooterProps> = ({
                 <HeartHandshake className="w-6 h-6" />
               </div>
               <div>
-                <div className="font-bold text-white text-lg leading-tight">Sri Devi Children Hospital</div>
+                <div className="font-bold text-white text-lg leading-tight">Apex Multi-Specialty Hospital</div>
                 <div className="text-xs text-teal-400 font-medium">Kakinada • Pithapuram</div>
               </div>
             </div>
@@ -161,7 +161,7 @@ export const Footer: React.FC<FooterProps> = ({
         </div>
 
         <div className="pt-8 flex flex-col sm:flex-row justify-between items-center text-xs text-slate-500 gap-4">
-          <p>© {new Date().getFullYear()} Sri Devi Children Hospital. All rights reserved. Built with clinical integrity.</p>
+          <p>© {new Date().getFullYear()} Apex Multi-Specialty Hospital. All rights reserved. Built with clinical integrity.</p>
           <div className="flex items-center gap-6">
             <span>Pediatric Confidentiality Protected</span>
             <span>•</span>

@@ -71,13 +71,13 @@ export const DoctorLoginModal: React.FC<DoctorLoginModalProps> = ({
             <div>
               <span className="inline-flex items-center gap-1 text-[11px] font-semibold uppercase tracking-wider bg-white/20 text-white px-2 py-0.5 rounded-full mb-1">
                 <ShieldCheck className="w-3 h-3" />
-                Verified Pediatrician Console
+                Verified Clinical Console
               </span>
               <h2 className="text-xl font-bold tracking-tight">Doctor Desk Login</h2>
             </div>
           </div>
           <p className="text-emerald-100 text-xs mt-2">
-            Secure clinical workspace for Sri Devi Children Hospital medical staff.
+            Secure clinical workspace for verified medical staff across partner hospitals.
           </p>
         </div>
 

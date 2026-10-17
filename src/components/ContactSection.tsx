@@ -34,7 +34,7 @@ export const ContactSection: React.FC<ContactSectionProps> = ({ branches }) => {
             <span>Hospital Inquiries &amp; Assistance</span>
           </div>
           <h2 className="text-2xl sm:text-3xl lg:text-4xl font-extrabold text-slate-900 tracking-tight">
-            Contact Sri Devi Children Hospital
+            Contact Apex Multi-Specialty Hospital
           </h2>
           <p className="text-sm sm:text-base text-slate-600 leading-relaxed">
             Reach our frontdesk team for scheduling questions, emergency guidance, or branch locations.
@@ -137,8 +137,8 @@ export const ContactSection: React.FC<ContactSectionProps> = ({ branches }) => {
                     onChange={(e) => setFormData({ ...formData, branch: e.target.value })}
                     className="w-full px-3.5 py-2.5 rounded-xl bg-slate-50 border border-slate-200 text-slate-900 text-xs focus:bg-white focus:outline-none focus:border-teal-500"
                   >
-                    <option value="kakinada">Sri Devi Children Hospital - Kakinada</option>
-                    <option value="pithapuram">Sri Devi Children Hospital - Pithapuram</option>
+                    <option value="kakinada">Apex Multi-Specialty Hospital - Main Campus</option>
+                    <option value="pithapuram">Apex Hospital - Downtown Branch</option>
                   </select>
                 </div>
 

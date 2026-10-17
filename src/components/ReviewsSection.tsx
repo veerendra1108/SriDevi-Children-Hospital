@@ -19,7 +19,7 @@ export const ReviewsSection: React.FC<ReviewsSectionProps> = ({ reviews }) => {
             Parents’ Experiences
           </h2>
           <p className="text-sm sm:text-base text-slate-600 leading-relaxed">
-            Real feedback from families across Kakinada and Pithapuram who rely on Sri Devi Children Hospital for their children’s health.
+            Real feedback from families across Kakinada and Pithapuram who rely on Apex Multi-Specialty Hospital for their children’s health.
           </p>
 
           {/* Rating Summary Card */}

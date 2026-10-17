@@ -361,7 +361,7 @@ export class SqliteManager {
     ensureColumn('branches', 'hospital_id', "TEXT DEFAULT 'hosp_sdch'");
     ensureColumn('doctor_schedules', 'hospital_id', "TEXT DEFAULT 'hosp_sdch'");
     ensureColumn('appointments', 'hospital_id', "TEXT DEFAULT 'hosp_sdch'");
-    ensureColumn('appointments', 'hospital_name', "TEXT DEFAULT 'Sri Devi Children Hospital'");
+    ensureColumn('appointments', 'hospital_name', "TEXT DEFAULT 'Apex Multi-Specialty Hospital'");
     ensureColumn('appointments', 'tracking_secret', 'TEXT');
     ensureColumn('appointments', 'patient_age', 'INTEGER');
     ensureColumn('appointments', 'guardian_name', 'TEXT');
@@ -1086,7 +1086,7 @@ export class SqliteManager {
       createdAt: a.created_at,
       updatedAt: a.updated_at,
       hospitalId: a.hospital_id || 'hosp_sdch',
-      hospitalName: a.hospital_name || 'Sri Devi Children Hospital',
+      hospitalName: a.hospital_name || 'Apex Multi-Specialty Hospital',
       trackingSecret: a.tracking_secret || undefined,
       patientAge: a.patient_age ?? undefined,
       guardianName: a.guardian_name || undefined,

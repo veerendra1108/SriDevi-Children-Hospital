@@ -176,7 +176,7 @@ export const ParentDashboard: React.FC<ParentDashboardProps> = ({
           <div className="space-y-2">
             <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-teal-50 text-teal-800 text-xs font-semibold">
               <User className="w-3.5 h-3.5 text-teal-600" />
-              <span>Parent Portal • Sri Devi Children Hospital</span>
+              <span>Patient Health Portal • Doctormate</span>
             </div>
             <h1 className="text-2xl sm:text-3xl font-extrabold text-slate-900 tracking-tight">
               Welcome, {parentUser.name}
@@ -599,7 +599,7 @@ export const ParentDashboard: React.FC<ParentDashboardProps> = ({
                       <span className="text-[10px] text-slate-500">{appt.date}</span>
                     </div>
                     <div className="text-slate-600 text-[11px]">
-                      {appt.doctorName} • {appt.branchName.replace('Sri Devi Children Hospital - ', '')}
+                      {appt.doctorName} • {appt.hospitalName || appt.branchName}
                     </div>
                     <div className="text-[11px] text-teal-700 font-medium">
                       Status: {appt.status.replace('_', ' ')}

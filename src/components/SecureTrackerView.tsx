@@ -16,16 +16,23 @@ import {
 
 interface SecureTrackerViewProps {
   initialId?: string;
+  initialToken?: string;
   initialMobile?: string;
   onClose?: () => void;
+  onBack?: () => void;
+  onBookNew?: () => void;
 }
 
 export const SecureTrackerView: React.FC<SecureTrackerViewProps> = ({
   initialId = '',
+  initialToken = '',
   initialMobile = '',
   onClose,
+  onBack,
+  onBookNew,
 }) => {
-  const [searchId, setSearchId] = useState(initialId);
+  const effectiveInitialId = initialToken || initialId || '';
+  const [searchId, setSearchId] = useState(effectiveInitialId);
   const [mobileNumber, setMobileNumber] = useState(initialMobile);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -84,10 +91,15 @@ export const SecureTrackerView: React.FC<SecureTrackerViewProps> = ({
   };
 
   useEffect(() => {
-    if (initialId) {
-      fetchTracking(initialId, initialMobile);
+    const tokenToUse = initialToken || initialId || '';
+    if (tokenToUse) {
+      setSearchId(tokenToUse);
+      if (initialMobile) {
+        setMobileNumber(initialMobile);
+        fetchTracking(tokenToUse, initialMobile);
+      }
     }
-  }, [initialId, initialMobile]);
+  }, [initialId, initialToken, initialMobile]);
 
   const handleTrackSubmit = (e: React.FormEvent) => {
     e.preventDefault();

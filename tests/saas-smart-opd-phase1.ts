@@ -228,7 +228,7 @@ async function runTestSuite() {
     const dashResA = await fetch(`${baseUrl}/reception/dashboard?hospitalId=${hospitalId}&date=${testDate}`);
     const dashA = await dashResA.json();
 
-    // Hospital B (Sri Devi Children Hospital)
+    // Hospital B (Apex Multi-Specialty Hospital)
     const dashResB = await fetch(`${baseUrl}/reception/dashboard?hospitalId=hosp_sdch&date=${testDate}`);
     const dashB = await dashResB.json();
 
