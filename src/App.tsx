@@ -132,9 +132,21 @@ export default function App() {
     activeScenario: null,
   });
 
-  // Synchronize activeTab in localStorage
+  // Synchronize activeTab in localStorage and update browser title
   useEffect(() => {
     localStorage.setItem('sri_devi_active_tab', activeTab);
+    const titles: Record<string, string> = {
+      'saas-home': 'Doctormate — Multi-Hospital Smart OPD & Live Queue Platform',
+      'hospital-booking': 'Book Hospital Appointment | Doctormate Smart OPD',
+      'track-appointment': 'Live Queue Radar | Doctormate Patient Tracking',
+      'hospital-admin': 'Hospital Administration Portal | Doctormate',
+      'onboarding': 'Hospital Onboarding Wizard | Doctormate',
+      'reception-desk': 'Reception Desk Operations Console | Doctormate OPD',
+      'parent-portal': 'Patient Portal | Sri Devi Children Hospital',
+      'doctor-desk': 'Doctor Consultation Console | Sri Devi Children Hospital',
+      'hospital-legacy': 'Sri Devi Children Hospital | Kakinada & Pithapuram',
+    };
+    document.title = titles[activeTab] || 'Doctormate — Multi-Hospital Smart OPD Platform';
   }, [activeTab]);
 
   // Initial data loading
